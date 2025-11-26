@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <title>Command Center</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    {% csrf_token %}
+    <style>
+        body {
+            margin: 0;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background-color: #111827;
+            color: #e5e7eb;
+        }
+        a { color: #60a5fa; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .layout-root {
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+        .layout-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem 1.25rem;
+            background-color: #020617;
+            border-bottom: 1px solid #1f2937;
+        }
+        .layout-header-left {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        .layout-header-title {
+            font-weight: 600;
+            font-size: 1rem;
+        }
+        .layout-header-right {
+            font-size: 0.875rem;
+            color: #9ca3af;
+        }
+        .layout-main {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 260px minmax(0, 1fr) 320px;
+            gap: 0.75rem;
+            padding: 0.75rem 1.25rem 1.25rem;
+        }
+        .panel {
+            background-color: #020617;
+            border: 1px solid #1f2937;
+            border-radius: 0.5rem;
+            padding: 0.75rem;
+            box-sizing: border-box;
+        }
+        .panel-title {
+            font-size: 0.875rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            color: #e5e7eb;
+        }
+        .panel-subtitle {
+            font-size: 0.75rem;
+            color: #9ca3af;
+            margin-bottom: 0.5rem;
+        }
+        .scroll-y {
+            max-height: calc(100vh - 140px);
+            overflow-y: auto;
+        }
+    </style>
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+<div class="layout-root">
+    <header class="layout-header">
+        <div class="layout-header-left">
+            <div class="layout-header-title">Командный центр</div>
+            {% block header_left %}{% endblock %}
+        </div>
+        <div class="layout-header-right">
+            {% if request.user.is_authenticated %}
+                {{ request.user.username }}
+                &nbsp;·&nbsp;
+                <a href="/admin/">Админка</a>
+            {% else %}
+                <a href="/admin/login/">Войти</a>
+            {% endif %}
+        </div>
+    </header>
+    <main class="layout-main">
+        {% block content %}{% endblock %}
+    </main>
+</div>
+{% block extra_js %}{% endblock %}
+</body>
+</html>
+

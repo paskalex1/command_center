@@ -1,0 +1,65 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.Python
+
+# Virtualenv
+venv/
+.venv/
+
+# Django
+*.log
+staticfiles/
+media/
+local_settings.py
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Docker
+*.pid
+*~ 
+docker-compose.override.yml
+
+# Byte-compiled / optimized / DLL files
+*.pyc
+*.pyo
+*.pyd
+*.pdb
+
+# pytest
+.pytest_cache/
+.cache/
+
+# mypy
+.mypy_cache/
+
+# Coverage
+htmlcov/
+.coverage
+.coverage.*
+.cache
+
+# Node
+node_modules/
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+
+# OS files
+.DS_Store
+Thumbs.db
+CHECKLISTS.md
+COMMAND_CENTER_PLAN.md
+MY_LLM_MODELS.md

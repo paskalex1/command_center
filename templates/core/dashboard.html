@@ -1,0 +1,536 @@
+{% extends "base.html" %}
+
+{% block header_left %}
+    {% if projects %}
+        <label for="project-select" style="font-size: 0.875rem; color:#9ca3af;">Проект:</label>
+        <select id="project-select" style="background:#020617;color:#e5e7eb;border:1px solid #374151;border-radius:0.375rem;padding:0.25rem 0.5rem;font-size:0.875rem;">
+            {% for project in projects %}
+                <option value="{{ project.id }}" {% if current_project and project.id == current_project.id %}selected{% endif %}>
+                    {{ project.name }}
+                </option>
+            {% endfor %}
+        </select>
+    {% else %}
+        <span style="font-size:0.875rem;color:#9ca3af;">Нет проектов</span>
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+    <section class="panel scroll-y" id="agents-panel"
+             data-current-project-id="{% if current_project %}{{ current_project.id }}{% endif %}"
+             data-initial-agent-id="{% if initial_agent %}{{ initial_agent.id }}{% endif %}">
+        <div class="panel-title">Агенты</div>
+        <div class="panel-subtitle">
+            {% if current_project %}
+                Проект: {{ current_project.name }}
+            {% endif %}
+        </div>
+        <ul id="agents-list" style="list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:0.25rem;">
+            {% for agent in agents %}
+                <li>
+                    <button type="button"
+                            class="agent-item"
+                            data-agent-id="{{ agent.id }}"
+                            data-is-primary="{% if agent.is_primary %}1{% else %}0{% endif %}"
+                            style="width:100%;text-align:left;background:#020617;border:1px solid #1f2937;border-radius:0.375rem;padding:0.35rem 0.5rem;font-size:0.875rem;color:#e5e7eb;cursor:pointer;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;">
+                            <span>{{ agent.name }}</span>
+                            <span style="font-size:0.7rem;color:#9ca3af;">
+                                {% if agent.project_id %}локальный{% else %}глобальный{% endif %}
+                                {% if agent.is_primary %} · по умолчанию{% endif %}
+                            </span>
+                        </div>
+                    </button>
+                </li>
+            {% empty %}
+                <li style="font-size:0.85rem;color:#9ca3af;">Нет доступных агентов</li>
+            {% endfor %}
+        </ul>
+
+        <div id="agent-details" style="margin-top:0.75rem;font-size:0.8rem;border-top:1px solid #1f2937;padding-top:0.5rem;display:none;">
+            <div style="font-weight:600;margin-bottom:0.25rem;">Текущий агент</div>
+            <div id="agent-details-name" style="margin-bottom:0.25rem;color:#e5e7eb;"></div>
+            <div style="margin-bottom:0.35rem;">
+                <span style="color:#9ca3af;">Модель (фактическая):</span>
+                <span id="agent-details-resolved" style="color:#e5e7eb;"></span>
+                <span id="agent-details-badge" style="margin-left:0.35rem;font-size:0.7rem;color:#9ca3af;"></span>
+            </div>
+            <div id="agent-warning-banner"
+                 style="display:none;margin-bottom:0.35rem;font-size:0.75rem;color:#facc15;">
+            </div>
+            <label for="agent-model-select" style="display:block;margin-bottom:0.2rem;color:#9ca3af;">Выбрать модель:</label>
+            <select id="agent-model-select"
+                    style="width:100%;background:#020617;color:#e5e7eb;border:1px solid #374151;border-radius:0.375rem;padding:0.25rem 0.4rem;font-size:0.8rem;">
+                <option value="">Загрузка списка моделей…</option>
+            </select>
+            <button type="button" id="agent-model-save"
+                    style="margin-top:0.4rem;background:#2563eb;border:none;color:#e5e7eb;border-radius:0.375rem;padding:0.3rem 0.7rem;font-size:0.8rem;cursor:pointer;">
+                Сохранить
+            </button>
+            <div id="agent-details-status" style="margin-top:0.25rem;color:#9ca3af;"></div>
+        </div>
+    </section>
+
+    <section class="panel" id="chat-panel">
+        <div class="panel-title">Чат</div>
+        <div id="chat-messages"
+             style="border:1px solid #1f2937;border-radius:0.5rem;padding:0.5rem;height:calc(100% - 84px);overflow-y:auto;background:#020617;margin-bottom:0.5rem;font-size:0.875rem;">
+        </div>
+        <form id="chat-form" autocomplete="off" style="display:flex;gap:0.5rem;align-items:flex-end;">
+            <textarea id="chat-input"
+                      rows="2"
+                      placeholder="Введите сообщение…"
+                      style="flex:1;resize:vertical;min-height:40px;max-height:120px;background:#020617;color:#e5e7eb;border:1px solid #374151;border-radius:0.375rem;padding:0.4rem 0.5rem;font-size:0.875rem;"></textarea>
+            <button type="submit"
+                    style="background:#2563eb;border:none;color:#e5e7eb;border-radius:0.375rem;padding:0.45rem 0.9rem;font-size:0.875rem;cursor:pointer;white-space:nowrap;">
+                Отправить
+            </button>
+        </form>
+        <div id="chat-status" style="margin-top:0.25rem;font-size:0.75rem;color:#9ca3af;"></div>
+    </section>
+
+    <section class="panel scroll-y" id="side-panel">
+        <div class="panel-title">MCP и пайплайны</div>
+        <div class="panel-subtitle">Сервера, инструменты, пайплайны и память</div>
+
+        <div style="margin-bottom:0.75rem;border-bottom:1px solid #1f2937;padding-bottom:0.5rem;">
+            <div style="font-size:0.8rem;font-weight:600;margin-bottom:0.25rem;">LLM Registry</div>
+            <div style="font-size:0.8rem;color:#9ca3af;">
+                Primary chat model:
+                <span style="color:#e5e7eb;">{{ llm_chat_primary|default:"—" }}</span>
+            </div>
+            <div style="font-size:0.8rem;color:#9ca3af;">
+                Default embedding model:
+                <span style="color:#e5e7eb;">{{ llm_embedding_default|default:"—" }}</span>
+            </div>
+            <button type="button" id="llm-sync-button"
+                    style="margin-top:0.4rem;background:#374151;border:none;color:#e5e7eb;border-radius:0.375rem;padding:0.3rem 0.7rem;font-size:0.75rem;cursor:pointer;">
+                Sync from OpenAI
+            </button>
+            <div id="llm-sync-status" style="margin-top:0.25rem;font-size:0.75rem;color:#9ca3af;"></div>
+        </div>
+
+        <div style="margin-bottom:0.75rem;">
+            <div style="font-size:0.8rem;font-weight:600;margin-bottom:0.25rem;">MCP-серверы</div>
+            <ul style="list-style:none;padding:0;margin:0;font-size:0.8rem;">
+                {% for server in mcp_servers %}
+                    <li style="margin-bottom:0.15rem;">
+                        {{ server.name }}
+                        {% if not server.is_active %}
+                            <span style="color:#f97316;">· неактивен</span>
+                        {% endif %}
+                    </li>
+                {% empty %}
+                    <li style="color:#9ca3af;">Нет MCP-серверов</li>
+                {% endfor %}
+            </ul>
+        </div>
+
+        <div style="margin-bottom:0.75rem;">
+            <div style="font-size:0.8rem;font-weight:600;margin-bottom:0.25rem;">Инструменты MCP</div>
+            <ul style="list-style:none;padding:0;margin:0;font-size:0.8rem;">
+                {% for tool in mcp_tools %}
+                    <li style="margin-bottom:0.15rem;">
+                        {{ tool.name }}
+                        <span style="color:#6b7280;">· {{ tool.server.name }}</span>
+                    </li>
+                {% empty %}
+                    <li style="color:#9ca3af;">Нет инструментов MCP</li>
+                {% endfor %}
+            </ul>
+        </div>
+
+        <div style="margin-bottom:0.75rem;">
+            <div style="font-size:0.8rem;font-weight:600;margin-bottom:0.25rem;">Пайплайны</div>
+            <ul style="list-style:none;padding:0;margin:0;font-size:0.8rem;">
+                {% for pipeline in pipelines %}
+                    <li style="margin-bottom:0.15rem;">
+                        {{ pipeline.name }}
+                        <span style="color:#6b7280;">· {{ pipeline.owner_agent.name }}</span>
+                    </li>
+                {% empty %}
+                    <li style="color:#9ca3af;">Нет пайплайнов для проекта</li>
+                {% endfor %}
+            </ul>
+        </div>
+
+        <div>
+            <div style="font-size:0.8rem;font-weight:600;margin-bottom:0.25rem;">Память (последние события)</div>
+            <ul style="list-style:none;padding:0;margin:0;font-size:0.8rem;">
+                {% for event in memory_events %}
+                    <li style="margin-bottom:0.25rem;">
+                        <span style="color:#9ca3af;">{{ event.get_type_display }}:</span>
+                        {{ event.content|truncatechars:80 }}
+                    </li>
+                {% empty %}
+                    <li style="color:#9ca3af;">Пока нет событий памяти</li>
+                {% endfor %}
+            </ul>
+        </div>
+    </section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    (function () {
+        const projectSelect = document.getElementById("project-select");
+        const agentsPanel = document.getElementById("agents-panel");
+        const agentsList = document.getElementById("agents-list");
+        const chatForm = document.getElementById("chat-form");
+        const chatInput = document.getElementById("chat-input");
+        const chatMessages = document.getElementById("chat-messages");
+        const chatStatus = document.getElementById("chat-status");
+
+        const agentDetails = document.getElementById("agent-details");
+        const agentDetailsName = document.getElementById("agent-details-name");
+        const agentDetailsResolved = document.getElementById("agent-details-resolved");
+        const agentDetailsBadge = document.getElementById("agent-details-badge");
+        const agentDetailsStatus = document.getElementById("agent-details-status");
+        const agentWarningBanner = document.getElementById("agent-warning-banner");
+        const llmSyncButton = document.getElementById("llm-sync-button");
+        const llmSyncStatus = document.getElementById("llm-sync-status");
+        const agentModelSelect = document.getElementById("agent-model-select");
+        const agentModelSave = document.getElementById("agent-model-save");
+
+        function getCookie(name) {
+            const value = `; ${document.cookie}`;
+            const parts = value.split(`; ${name}=`);
+            if (parts.length === 2) return parts.pop().split(";").shift();
+        }
+
+        function scrollChatToBottom() {
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        async function loadModelsRegistry() {
+            try {
+                const resp = await fetch("/api/models/registry/");
+                if (!resp.ok) return null;
+                return await resp.json();
+            } catch (e) {
+                console.error("Failed to load models registry", e);
+                return null;
+            }
+        }
+
+        if (llmSyncButton) {
+            llmSyncButton.addEventListener("click", async () => {
+                llmSyncButton.disabled = true;
+                if (llmSyncStatus) {
+                    llmSyncStatus.textContent = "Запускаю синхронизацию реестра моделей…";
+                }
+                try {
+                    const resp = await fetch("/api/models/registry/sync/", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "X-CSRFToken": getCookie("csrftoken") || "",
+                        },
+                    });
+                    if (!resp.ok) {
+                        const txt = await resp.text();
+                        throw new Error(txt || "Ошибка запуска синхронизации");
+                    }
+                    if (llmSyncStatus) {
+                        llmSyncStatus.textContent = "Синхронизация запланирована.";
+                    }
+                    // сбросим локальный кэш реестра
+                    cachedRegistry = null;
+                } catch (e) {
+                    console.error(e);
+                    if (llmSyncStatus) {
+                        llmSyncStatus.textContent = "Не удалось запланировать синхронизацию.";
+                    }
+                } finally {
+                    llmSyncButton.disabled = false;
+                }
+            });
+        }
+
+        // --- Project selection with localStorage + query param ---
+        if (projectSelect) {
+            const urlParams = new URLSearchParams(window.location.search);
+            const urlProject = urlParams.get("project");
+            const storedProject = window.localStorage.getItem("current_project_id");
+
+            if (!urlProject && storedProject) {
+                const option = Array.from(projectSelect.options).find(o => o.value === storedProject);
+                if (option) {
+                    urlParams.set("project", storedProject);
+                    window.location.search = urlParams.toString();
+                }
+            }
+
+            projectSelect.addEventListener("change", () => {
+                const value = projectSelect.value;
+                if (value) {
+                    window.localStorage.setItem("current_project_id", value);
+                    const params = new URLSearchParams(window.location.search);
+                    params.set("project", value);
+                    window.location.search = params.toString();
+                }
+            });
+        }
+
+        let currentAgentId = agentsPanel ? agentsPanel.dataset.initialAgentId || null : null;
+        let currentConversationId = null;
+
+        let cachedRegistry = null;
+
+        async function ensureRegistryLoaded() {
+            if (cachedRegistry) return cachedRegistry;
+            cachedRegistry = await loadModelsRegistry();
+            return cachedRegistry;
+        }
+
+        async function loadAgentDetails(agentId) {
+            if (!agentId) return;
+            try {
+                const resp = await fetch(`/api/agents/${agentId}/`);
+                if (!resp.ok) throw new Error("Failed to load agent");
+                const agent = await resp.json();
+                const registry = await ensureRegistryLoaded();
+
+                if (agentDetails) {
+                    agentDetails.style.display = "block";
+                    agentDetailsName.textContent = agent.name || `Agent #${agent.id}`;
+                    agentDetailsResolved.textContent = agent.resolved_model_name || "—";
+
+                    if (!agent.model_name) {
+                        agentDetailsBadge.textContent = "(по умолчанию из реестра)";
+                    } else {
+                        agentDetailsBadge.textContent = "(переопределена вручную)";
+                    }
+
+                    if (agentWarningBanner) {
+                        if (agent.warning) {
+                            agentWarningBanner.style.display = "block";
+                            agentWarningBanner.textContent = agent.warning;
+                        } else {
+                            agentWarningBanner.style.display = "none";
+                            agentWarningBanner.textContent = "";
+                        }
+                    }
+
+                    agentDetailsStatus.textContent = "";
+
+                    if (registry && agentModelSelect) {
+                        const primary = registry.chat_primary;
+                        const recommended = registry.chat_recommended || [];
+                        const allChat = registry.chat || [];
+                        const deprecated = registry.deprecated || [];
+
+                        const currentExplicit = agent.model_name || "";
+
+                        while (agentModelSelect.firstChild) {
+                            agentModelSelect.removeChild(agentModelSelect.firstChild);
+                        }
+
+                        const optDefault = document.createElement("option");
+                        optDefault.value = "";
+                        optDefault.textContent = primary
+                            ? `Использовать default (${primary})`
+                            : "Использовать default (chat.primary)";
+                        agentModelSelect.appendChild(optDefault);
+
+                        if (recommended.length) {
+                            const groupLabel = document.createElement("option");
+                            groupLabel.disabled = true;
+                            groupLabel.textContent = "— Рекомендуемые —";
+                            agentModelSelect.appendChild(groupLabel);
+
+                            recommended.forEach(name => {
+                                const opt = document.createElement("option");
+                                opt.value = name;
+                                opt.textContent = name === primary ? `${name} (primary)` : name;
+                                agentModelSelect.appendChild(opt);
+                            });
+                        }
+
+                        const other = allChat.filter(
+                            name => !recommended.includes(name)
+                        );
+                        if (other.length) {
+                            const groupLabel2 = document.createElement("option");
+                            groupLabel2.disabled = true;
+                            groupLabel2.textContent = "— Другие chat-модели —";
+                            agentModelSelect.appendChild(groupLabel2);
+                            other.forEach(name => {
+                                const opt = document.createElement("option");
+                                opt.value = name;
+                                opt.textContent = name;
+                                agentModelSelect.appendChild(opt);
+                            });
+                        }
+
+                        const deprecatedList = deprecated.filter(name => allChat.includes(name));
+                        if (deprecatedList.length) {
+                            const groupLabel3 = document.createElement("option");
+                            groupLabel3.disabled = true;
+                            groupLabel3.textContent = "— Устаревшие (не рекомендуется) —";
+                            agentModelSelect.appendChild(groupLabel3);
+                            deprecatedList.forEach(name => {
+                                const opt = document.createElement("option");
+                                opt.value = name;
+                                opt.textContent = name + " (deprecated)";
+                                agentModelSelect.appendChild(opt);
+                            });
+                        }
+
+                        // Выбор текущего значения
+                        agentModelSelect.value = currentExplicit;
+                    }
+                }
+            } catch (e) {
+                console.error(e);
+                if (agentDetailsStatus) {
+                    agentDetailsStatus.textContent = "Не удалось загрузить данные агента.";
+                }
+            }
+        }
+
+        function updateAgentsSelection() {
+            const buttons = agentsList ? agentsList.querySelectorAll(".agent-item") : [];
+            buttons.forEach(btn => {
+                const agentId = btn.dataset.agentId;
+                if (currentAgentId && agentId === String(currentAgentId)) {
+                    btn.style.borderColor = "#2563eb";
+                    btn.style.backgroundColor = "#020617";
+                } else {
+                    btn.style.borderColor = "#1f2937";
+                    btn.style.backgroundColor = "#020617";
+                }
+            });
+        }
+
+        if (agentsList) {
+            agentsList.addEventListener("click", (event) => {
+                const button = event.target.closest(".agent-item");
+                if (!button) return;
+                currentAgentId = button.dataset.agentId;
+                currentConversationId = null;
+                chatMessages.innerHTML = "";
+                chatStatus.textContent = "Новый диалог с агентом: " + button.textContent.trim();
+                updateAgentsSelection();
+                loadAgentDetails(currentAgentId);
+            });
+            if (!currentAgentId) {
+                const primary = agentsList.querySelector('.agent-item[data-is-primary="1"]');
+                const first = agentsList.querySelector(".agent-item");
+                const initial = primary || first;
+                if (initial) {
+                    currentAgentId = initial.dataset.agentId;
+                }
+            }
+            updateAgentsSelection();
+            if (currentAgentId) {
+                loadAgentDetails(currentAgentId);
+            }
+        }
+
+        if (agentModelSave) {
+            agentModelSave.addEventListener("click", async () => {
+                if (!currentAgentId) return;
+                const selected = agentModelSelect ? agentModelSelect.value : "";
+                agentModelSave.disabled = true;
+                agentDetailsStatus.textContent = "Сохранение…";
+                try {
+                    const resp = await fetch(`/api/agents/${currentAgentId}/`, {
+                        method: "PATCH",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "X-CSRFToken": getCookie("csrftoken") || "",
+                        },
+                        body: JSON.stringify({ model_name: selected }),
+                    });
+                    if (!resp.ok) {
+                        const txt = await resp.text();
+                        throw new Error(txt || "Ошибка сохранения агента");
+                    }
+                    const updated = await resp.json();
+                    agentDetailsResolved.textContent = updated.resolved_model_name || "—";
+                    if (!updated.model_name) {
+                        agentDetailsBadge.textContent = "(по умолчанию из реестра)";
+                    } else {
+                        agentDetailsBadge.textContent = "(переопределена вручную)";
+                    }
+                    agentDetailsStatus.textContent = "Сохранено.";
+                } catch (e) {
+                    console.error(e);
+                    agentDetailsStatus.textContent = "Ошибка сохранения модели агента.";
+                } finally {
+                    agentModelSave.disabled = false;
+                }
+            });
+        }
+
+        function appendMessages(messages) {
+            messages.forEach(msg => {
+                const wrapper = document.createElement("div");
+                wrapper.style.marginBottom = "0.4rem";
+                const sender = msg.sender === "user" ? "Вы" :
+                    (msg.sender === "assistant" ? "Ассистент" : "Система");
+                const color = msg.sender === "user" ? "#bfdbfe" :
+                    (msg.sender === "assistant" ? "#bbf7d0" : "#e5e7eb");
+                wrapper.innerHTML = `<div style="font-size:0.75rem;color:#9ca3af;margin-bottom:0.1rem;">${sender}</div>
+                                     <div style="padding:0.35rem 0.5rem;border-radius:0.375rem;background:#020617;border:1px solid #1f2937;color:${color};white-space:pre-wrap;">${msg.content}</div>`;
+                chatMessages.appendChild(wrapper);
+            });
+            scrollChatToBottom();
+        }
+
+        if (chatForm) {
+            chatForm.addEventListener("submit", async (event) => {
+                event.preventDefault();
+                const text = chatInput.value.trim();
+                if (!text) return;
+                const projectId = agentsPanel ? agentsPanel.dataset.currentProjectId : null;
+                if (!projectId) {
+                    chatStatus.textContent = "Проект не выбран.";
+                    return;
+                }
+                if (!currentAgentId) {
+                    chatStatus.textContent = "Нет выбранного агента.";
+                    return;
+                }
+
+                chatForm.querySelector("button[type=submit]").disabled = true;
+                chatStatus.textContent = "Отправка...";
+
+                const payload = {
+                    message: text,
+                    agent_id: Number(currentAgentId),
+                };
+                if (currentConversationId) {
+                    payload.conversation_id = currentConversationId;
+                }
+
+                try {
+                    const response = await fetch(`/api/projects/${projectId}/assistant/chat/`, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "X-CSRFToken": getCookie("csrftoken") || "",
+                        },
+                        body: JSON.stringify(payload),
+                    });
+                    if (!response.ok) {
+                        const textErr = await response.text();
+                        throw new Error(textErr || "Ошибка ответа сервера");
+                    }
+                    const data = await response.json();
+                    currentConversationId = data.conversation_id;
+                    appendMessages(data.messages || []);
+                    chatInput.value = "";
+                    chatStatus.textContent = "";
+                } catch (err) {
+                    console.error(err);
+                    chatStatus.textContent = "Ошибка: " + (err.message || err);
+                } finally {
+                    chatForm.querySelector("button[type=submit]").disabled = false;
+                }
+            });
+        }
+    })();
+</script>
+{% endblock %}
