@@ -117,6 +117,7 @@ class MCPServerSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "description",
+            "base_url",
             "command",
             "command_args",
             "transport",

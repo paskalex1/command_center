@@ -309,14 +309,17 @@ def run_pipeline_task(task_id: int) -> None:
                     messages.append({"role": "system", "content": system_prompt})
                 messages.append({"role": "user", "content": message})
 
+                request_kwargs = {
+                    "model": model_name,
+                    "messages": messages,
+                    "temperature": agent.temperature,
+                    "timeout": 30,
+                }
+                if isinstance(agent.max_tokens, int) and agent.max_tokens > 0:
+                    request_kwargs["max_tokens"] = agent.max_tokens
+
                 try:
-                    completion = client.chat.completions.create(
-                        model=model_name,
-                        messages=messages,
-                        temperature=agent.temperature,
-                        max_tokens=agent.max_tokens,
-                        timeout=30,
-                    )
+                    completion = client.chat.completions.create(**request_kwargs)
                     reply = completion.choices[0].message.content or ""
                 except NotFoundError as exc:
                     logger.warning(

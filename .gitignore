@@ -31,6 +31,7 @@ local_settings.py
 *.pid
 *~ 
 docker-compose.override.yml
+docker-compose.mcp.local.yml
 
 # Byte-compiled / optimized / DLL files
 *.pyc
@@ -63,3 +64,7 @@ Thumbs.db
 CHECKLISTS.md
 COMMAND_CENTER_PLAN.md
 MY_LLM_MODELS.md
+
+# MCP local configs
+.env.mcp
+mcp_secrets/

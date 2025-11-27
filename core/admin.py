@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.contrib.admin.widgets import FilteredSelectMultiple
 
 admin.site.site_header = "Command Center — администрирование"
 admin.site.site_title = "Админка Command Center"
@@ -80,12 +81,77 @@ class AgentAdmin(admin.ModelAdmin):
     list_display_links = ("id", "name")
     list_filter = ("project", "is_primary", "is_active")
     search_fields = ("name",)
+    filter_horizontal = ("delegates",)
+    fieldsets = (
+        (
+            None,
+            {
+                "fields": (
+                    "project",
+                    "name",
+                    "system_prompt",
+                )
+            },
+        ),
+        (
+            "LLM-настройки",
+            {
+                "fields": (
+                    "model_name",
+                    "temperature",
+                    "max_tokens",
+                    "tool_mode",
+                )
+            },
+        ),
+        (
+            "Статус",
+            {
+                "fields": (
+                    "is_primary",
+                    "is_active",
+                )
+            },
+        ),
+        (
+            "Делегаты",
+            {
+                "fields": ("delegates",),
+            },
+        ),
+    )
 
 
 @admin.register(AgentServerBinding)
 class AgentServerBindingAdmin(admin.ModelAdmin):
     list_display = ("id", "agent", "server")
     list_display_links = ("id", "agent", "server")
+    filter_horizontal = ("allowed_tools",)
+
+    def get_form(self, request, obj=None, **kwargs):
+        request._obj_ = obj
+        return super().get_form(request, obj, **kwargs)
+
+    def formfield_for_manytomany(self, db_field, request, **kwargs):
+        if db_field.name == "allowed_tools":
+            obj = getattr(request, "_obj_", None)
+            if obj and obj.server_id:
+                kwargs["queryset"] = MCPTool.objects.filter(server=obj.server)
+            else:
+                kwargs["queryset"] = MCPTool.objects.none()
+
+            field = super().formfield_for_manytomany(db_field, request, **kwargs)
+
+            def label_from_instance(tool: MCPTool) -> str:
+                desc = (tool.description or "").strip()
+                first_line = desc.splitlines()[0] if desc else ""
+                return f"{tool.name} — {first_line}" if first_line else tool.name
+
+            field.label_from_instance = label_from_instance
+            field.widget = FilteredSelectMultiple("Разрешённые инструменты", is_stacked=False)
+            return field
+
+        return super().formfield_for_manytomany(db_field, request, **kwargs)
 
 
 @admin.register(Conversation)

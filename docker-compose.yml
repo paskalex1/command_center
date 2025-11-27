@@ -13,6 +13,9 @@ services:
       - redis
     volumes:
       - .:/app
+      - /Users/paskalex:/Users/paskalex
+    networks:
+      - mcp-net
 
   worker:
     build: .
@@ -24,6 +27,8 @@ services:
       - redis
     volumes:
       - .:/app
+    networks:
+      - mcp-net
 
   postgres:
     image: pgvector/pgvector:pg16
@@ -38,9 +43,17 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./docker/postgres/initdb.d:/docker-entrypoint-initdb.d
+    networks:
+      - mcp-net
 
   redis:
     image: redis:7-alpine
+    networks:
+      - mcp-net
 
 volumes:
   postgres_data:
+
+networks:
+  mcp-net:
+    driver: bridge

@@ -8,10 +8,11 @@
 - **Проекты** — логические рабочие пространства.
 - **База знаний** — загрузка документов (PDF/MD/TXT), разбиение на фрагменты, эмбеддинги и семантический поиск.
 - **MCP‑серверы и инструменты** — регистрация MCP‑серверов и вызов инструментов через Django API.
-- **Агенты** — OpenAI‑агенты с привязкой к MCP‑инструментам и выбором модели из LLM Registry.
-- **Личный ассистент** — диалоги, долговременная память, поиск по MemoryEvent.
+- **Агенты** — OpenAI‑агенты с привязкой к MCP‑инструментам, режимами работы (`auto/required`) и выбором модели из LLM Registry.
+- **Делегирование** — агенты могут вызывать друг друга через generated tools (`delegate_to_agent_*`).
+- **Личный ассистент** — диалоги, долговременная память, поиск по MemoryEvent и `tool_traces` для каждого ответа.
 - **Пайплайны** — последовательности шагов (агенты + инструменты), выполняемые через Celery.
-- **Минимальный UI** — веб‑интерфейс на Django Templates: проекты, агенты, чат, MCP, пайплайны, память.
+- **UI командного центра** — проекты, агенты, чат, память, MCP и пайплайны + новый блок управления доступами к инструментам и быстрые действия для Filesystem MCP (архивы, JSON/YAML и т.д.).
 - **LLM Registry** — централизованный реестр доступных LLM‑моделей, синхронизируемый с OpenAI.
 
 ## Стек
@@ -67,17 +68,38 @@
   - `GET/POST   /api/agents/`
   - `GET/PATCH  /api/agents/{id}/`
   - `POST       /api/agents/{id}/invoke/`
+  - `GET/POST   /api/agents/{id}/mcp-access/`
 - Ассистент проекта:
   - `POST /api/projects/{project_id}/assistant/chat/`
   - `GET  /api/conversations/{id}/`
 - Пайплайны:
   - `GET/POST   /api/pipelines/`
   - `GET/PATCH  /api/pipelines/{id}/`
-  - `POST       /api/pipelines/{id}/run/`
-  - `GET        /api/tasks/{id}/`
+- `POST       /api/pipelines/{id}/run/`
+- `GET        /api/tasks/{id}/`
 - LLM Registry:
-  - `GET  /api/models/registry/` — текущее состояние реестра моделей
-  - `POST /api/models/registry/sync/` — ручной запуск синхронизации (только для админов)
+- `GET  /api/models/registry/` — текущее состояние реестра моделей
+- `POST /api/models/registry/sync/` — ручной запуск синхронизации (только для админов)
+
+## Быстрые действия Filesystem MCP
+
+В веб‑интерфейсе (панель справа) появился отдельный блок для Filesystem MCP:
+
+- переключатели доступа к MCP‑инструментам по каждому серверу;
+- формы для «быстрых действий»: `fs_zip`, `fs_unzip`, `fs_read_json`, `fs_write_json` (список расширяется по мере добавления инструментов);
+- журнал выполненных команд (все ответы MCP попадают в лог, ошибки подсвечены красным);
+- панель автоматически скрывается, если у выбранного агента нет доступа к Filesystem MCP.
+
+## Smoke‑тесты Filesystem MCP
+
+Для проверки MCP‑инструментов без UI используется минимальный smoke‑набор `tests/test_smoke.py` в проекте `filesystem-mcp`. Он проверяет initialize → tools.list → запись/чтение файла → zip/unzip → JSON read/write.
+
+```bash
+cd /Users/paskalex/Work/mcp/filesystem-mcp
+MCP_BASE_URL=http://localhost:8020/mcp python3 -m unittest tests.test_smoke
+```
+
+Перед запуском убедитесь, что контейнер Filesystem MCP поднят (`docker-compose up -d` в `/Users/paskalex/Work/mcp/filesystem-mcp`).
 
 ## LLM Registry
 
@@ -126,4 +148,3 @@
 ## Лицензия
 
 Проект создаётся как внутренний инструмент; лицензию можно добавить позже при необходимости.
-

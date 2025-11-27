@@ -8,9 +8,32 @@ from command_center.llm_registry import (
 )
 
 import logging
+from urllib.parse import urlparse
+from django.core.exceptions import ValidationError
 
 
 logger = logging.getLogger(__name__)
+
+
+def validate_mcp_base_url(value: str):
+    """
+    Более мягкая валидация базового URL MCP:
+    - допускает docker-хосты (filesystem-mcp, my-service и т.п.);
+    - требует только http/https и наличие host:port.
+    """
+    if not value:
+        return
+
+    parsed = urlparse(value)
+    if parsed.scheme not in ("http", "https"):
+        raise ValidationError(
+            "URL MCP сервера должен начинаться с http:// или https://"
+        )
+
+    if not parsed.netloc:
+        raise ValidationError(
+            "URL MCP сервера должен содержать хост (например: filesystem-mcp:8015)"
+        )
 
 
 class Project(models.Model):
@@ -149,18 +172,31 @@ class MCPServer(models.Model):
 
     name = models.CharField("Название", max_length=100, unique=True)
     description = models.TextField("Описание", blank=True)
+    base_url = models.CharField(
+        "Базовый URL MCP сервера",
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text="Например: http://filesystem-mcp:8015/mcp (для HTTP-транспорта)",
+        validators=[validate_mcp_base_url],
+    )
 
     command = models.CharField(
         "Команда запуска",
         max_length=255,
-        help_text="Команда запуска MCP сервера, например 'uvx' или 'node' или 'python'",
+        blank=True,
+        null=True,
+        help_text=(
+            "Например: python -m core.dummy_mcp_server (для STDIO-транспорта). "
+            "Для HTTP можно оставить пустым."
+        ),
     )
     command_args = models.JSONField(
         "Аргументы команды",
-        default=list,
+        blank=True,
+        null=True,
         help_text=(
-            "Список аргументов, например "
-            "['mcp-server-filesystem', '--root', '/app/data']"
+            "Список аргументов для команды (используется только для STDIO-транспорта)."
         ),
     )
 
@@ -209,6 +245,10 @@ class MCPTool(models.Model):
 
 
 class Agent(models.Model):
+    class ToolMode(models.TextChoices):
+        AUTO = "auto", "Авто (инструменты по желанию)"
+        REQUIRED = "required", "Только через инструменты"
+
     project = models.ForeignKey(
         Project,
         verbose_name="Проект",
@@ -237,6 +277,23 @@ class Agent(models.Model):
         null=True,
         blank=True,
         help_text="Ограничение длины ответа модели; null = по умолчанию модели",
+    )
+    delegates = models.ManyToManyField(
+        "self",
+        symmetrical=False,
+        blank=True,
+        related_name="delegated_by",
+        verbose_name="Агенты, которым можно делегировать задачи",
+    )
+    tool_mode = models.CharField(
+        "Режим инструментов",
+        max_length=16,
+        choices=ToolMode.choices,
+        default=ToolMode.AUTO,
+        help_text=(
+            "Как агент использует MCP-инструменты и делегатов: 'Авто' — может игнорировать; "
+            "'Только через инструменты' — обязан вызывать хотя бы один инструмент."
+        ),
     )
     is_primary = models.BooleanField("Агент по умолчанию", default=False)
     is_active = models.BooleanField("Активен", default=True)
@@ -306,10 +363,12 @@ class AgentServerBinding(models.Model):
         on_delete=models.CASCADE,
         related_name="agent_bindings",
     )
-    allowed_tools = models.JSONField(
-        "Разрешённые инструменты",
-        default=list,
-        help_text="Список имён MCPTool.name, которые агент может вызывать",
+    allowed_tools = models.ManyToManyField(
+        MCPTool,
+        verbose_name="Разрешённые инструменты",
+        blank=True,
+        related_name="agent_accesses",
+        help_text="Инструменты MCP, которые может вызывать агент",
     )
 
     class Meta:

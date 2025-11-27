@@ -89,6 +89,94 @@
         <div id="chat-status" style="margin-top:0.25rem;font-size:0.75rem;color:#9ca3af;"></div>
     </section>
 
+    <section class="panel" id="agent-tools-panel" style="display:none;">
+        <div class="panel-title">Доступ к MCP-инструментам</div>
+        <div class="panel-subtitle">Управление разрешениями агентов на конкретные инструменты</div>
+        <div id="agent-tools-content" style="font-size:0.85rem;color:#e5e7eb;">
+            Загрузите агента, чтобы управлять доступом к инструментам.
+        </div>
+    </section>
+
+    <section class="panel" id="fs-actions-panel" style="display:none;">
+        <div class="panel-title">Filesystem MCP — быстрые действия</div>
+        <div class="panel-subtitle">Архивы, JSON/YAML и другие операции доступны прямо из UI</div>
+
+        <div id="fs-actions-helper" style="font-size:0.8rem;color:#9ca3af;margin-bottom:0.5rem;">
+            Инструменты отображаются, если выбранный агент имеет доступ к Filesystem MCP.
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:0.75rem;">
+            <div style="border:1px solid #1f2937;border-radius:0.5rem;padding:0.6rem;background:#020617;">
+                <div style="font-weight:600;font-size:0.9rem;margin-bottom:0.3rem;">Создать ZIP</div>
+                <form id="fs-zip-form">
+                    <label style="display:block;font-size:0.75rem;color:#9ca3af;">Пути (по одному в строке)</label>
+                    <textarea id="fs-zip-entries" rows="3" style="width:100%;margin-bottom:0.35rem;"></textarea>
+                    <label style="display:block;font-size:0.75rem;color:#9ca3af;">Архив</label>
+                    <input id="fs-zip-archive" type="text" style="width:100%;margin-bottom:0.35rem;">
+                    <label style="font-size:0.75rem;color:#e5e7eb;">
+                        <input type="checkbox" id="fs-zip-overwrite" checked> overwrite
+                    </label>
+                    <button type="submit"
+                            style="margin-top:0.3rem;background:#2563eb;border:none;color:#e5e7eb;border-radius:0.375rem;padding:0.35rem 0.75rem;font-size:0.8rem;cursor:pointer;">
+                        Создать
+                    </button>
+                </form>
+            </div>
+
+            <div style="border:1px solid #1f2937;border-radius:0.5rem;padding:0.6rem;background:#020617;">
+                <div style="font-weight:600;font-size:0.9rem;margin-bottom:0.3rem;">Распаковать ZIP</div>
+                <form id="fs-unzip-form">
+                    <label style="display:block;font-size:0.75rem;color:#9ca3af;">Архив</label>
+                    <input id="fs-unzip-archive" type="text" style="width:100%;margin-bottom:0.35rem;">
+                    <label style="display:block;font-size:0.75rem;color:#9ca3af;">Каталог назначения</label>
+                    <input id="fs-unzip-dest" type="text" style="width:100%;margin-bottom:0.35rem;">
+                    <label style="font-size:0.75rem;color:#e5e7eb;">
+                        <input type="checkbox" id="fs-unzip-overwrite" checked> overwrite
+                    </label>
+                    <button type="submit"
+                            style="margin-top:0.3rem;background:#2563eb;border:none;color:#e5e7eb;border-radius:0.375rem;padding:0.35rem 0.75rem;font-size:0.8rem;cursor:pointer;">
+                        Распаковать
+                    </button>
+                </form>
+            </div>
+
+            <div style="border:1px solid #1f2937;border-radius:0.5rem;padding:0.6rem;background:#020617;">
+                <div style="font-weight:600;font-size:0.9rem;margin-bottom:0.3rem;">Прочитать JSON</div>
+                <form id="fs-read-json-form">
+                    <label style="display:block;font-size:0.75rem;color:#9ca3af;">Путь</label>
+                    <input id="fs-json-read-path" type="text" style="width:100%;margin-bottom:0.35rem;">
+                    <button type="submit"
+                            style="margin-top:0.3rem;background:#2563eb;border:none;color:#e5e7eb;border-radius:0.375rem;padding:0.35rem 0.75rem;font-size:0.8rem;cursor:pointer;">
+                        Прочитать
+                    </button>
+                </form>
+                <pre id="fs-json-read-output" style="margin-top:0.4rem;font-size:0.75rem;color:#a5b4fc;white-space:pre-wrap;"></pre>
+            </div>
+
+            <div style="border:1px solid #1f2937;border-radius:0.5rem;padding:0.6rem;background:#020617;">
+                <div style="font-weight:600;font-size:0.9rem;margin-bottom:0.3rem;">Записать JSON</div>
+                <form id="fs-write-json-form">
+                    <label style="display:block;font-size:0.75rem;color:#9ca3af;">Путь</label>
+                    <input id="fs-json-write-path" type="text" style="width:100%;margin-bottom:0.35rem;">
+                    <label style="display:block;font-size:0.75rem;color:#9ca3af;">JSON содержимое</label>
+                    <textarea id="fs-json-write-data" rows="4" style="width:100%;margin-bottom:0.35rem;">{"example": true}</textarea>
+                    <label style="font-size:0.75rem;color:#e5e7eb;">
+                        <input type="checkbox" id="fs-json-write-overwrite" checked> overwrite
+                    </label>
+                    <button type="submit"
+                            style="margin-top:0.3rem;background:#2563eb;border:none;color:#e5e7eb;border-radius:0.375rem;padding:0.35rem 0.75rem;font-size:0.8rem;cursor:pointer;">
+                        Сохранить
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <div id="fs-actions-log"
+             style="margin-top:0.75rem;border:1px solid #1f2937;border-radius:0.5rem;padding:0.5rem;height:180px;overflow-y:auto;background:#020617;font-size:0.75rem;color:#e5e7eb;">
+            <div style="color:#9ca3af;">Здесь появятся результаты инструментов Filesystem MCP.</div>
+        </div>
+    </section>
+
     <section class="panel scroll-y" id="side-panel">
         <div class="panel-title">MCP и пайплайны</div>
         <div class="panel-subtitle">Сервера, инструменты, пайплайны и память</div>
@@ -180,6 +268,15 @@
         const chatInput = document.getElementById("chat-input");
         const chatMessages = document.getElementById("chat-messages");
         const chatStatus = document.getElementById("chat-status");
+        const agentToolsPanelEl = document.getElementById("agent-tools-panel");
+        const agentToolsContentEl = document.getElementById("agent-tools-content");
+        const fsActionsPanel = document.getElementById("fs-actions-panel");
+        const fsActionsLog = document.getElementById("fs-actions-log");
+        const fsZipForm = document.getElementById("fs-zip-form");
+        const fsUnzipForm = document.getElementById("fs-unzip-form");
+        const fsReadJsonForm = document.getElementById("fs-read-json-form");
+        const fsWriteJsonForm = document.getElementById("fs-write-json-form");
+        const fsJsonReadOutput = document.getElementById("fs-json-read-output");
 
         const agentDetails = document.getElementById("agent-details");
         const agentDetailsName = document.getElementById("agent-details-name");
@@ -274,8 +371,175 @@
 
         let currentAgentId = agentsPanel ? agentsPanel.dataset.initialAgentId || null : null;
         let currentConversationId = null;
+        let filesystemToolMap = {};
+        let fsFormsInitialized = false;
 
         let cachedRegistry = null;
+
+        function resetAgentToolPanels() {
+            filesystemToolMap = {};
+            if (agentToolsPanelEl && agentToolsContentEl) {
+                agentToolsPanelEl.style.display = "none";
+                agentToolsContentEl.innerHTML = "Загрузите агента, чтобы увидеть доступные инструменты.";
+            }
+            if (fsActionsPanel) {
+                fsActionsPanel.style.display = "none";
+            }
+        }
+
+        resetAgentToolPanels();
+
+        function pushFsLog(title, payload, isError = false) {
+            if (!fsActionsLog) return;
+            const wrapper = document.createElement("div");
+            wrapper.style.marginBottom = "0.5rem";
+            const header = document.createElement("div");
+            header.style.fontSize = "0.8rem";
+            header.style.fontWeight = "600";
+            header.style.color = isError ? "#fca5a5" : "#a5b4fc";
+            header.textContent = title;
+            const pre = document.createElement("pre");
+            pre.style.whiteSpace = "pre-wrap";
+            pre.style.fontSize = "0.75rem";
+            pre.style.marginTop = "0.2rem";
+            pre.textContent =
+                typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
+            wrapper.appendChild(header);
+            wrapper.appendChild(pre);
+            fsActionsLog.prepend(wrapper);
+        }
+
+        async function invokeFilesystemTool(toolName, args) {
+            const toolId = filesystemToolMap[toolName];
+            if (!toolId) {
+                throw new Error(`Инструмент ${toolName} недоступен для текущего агента.`);
+            }
+            const resp = await fetch(`/api/mcp/tools/${toolId}/invoke/`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-CSRFToken": getCookie("csrftoken") || "",
+                },
+                body: JSON.stringify({ arguments: args }),
+            });
+            const data = await resp.json();
+            if (!resp.ok || data.error) {
+                throw new Error(data.error?.message || "Ошибка вызова инструмента");
+            }
+            const result =
+                data.result?.structuredContent?.result ||
+                data.result?.structuredContent ||
+                data.result ||
+                data;
+            return result;
+        }
+
+        function initFsActionForms() {
+            if (fsFormsInitialized) return;
+            fsFormsInitialized = true;
+
+            if (fsZipForm) {
+                fsZipForm.addEventListener("submit", async (event) => {
+                    event.preventDefault();
+                    const entriesField = document.getElementById("fs-zip-entries");
+                    const archiveField = document.getElementById("fs-zip-archive");
+                    const overwriteField = document.getElementById("fs-zip-overwrite");
+                    try {
+                        const entries = (entriesField.value || "")
+                            .split("\n")
+                            .map((v) => v.trim())
+                            .filter(Boolean);
+                        if (!entries.length) {
+                            throw new Error("Укажите хотя бы один путь для архивации.");
+                        }
+                        const archive = archiveField.value.trim();
+                        if (!archive) {
+                            throw new Error("Введите путь для архива.");
+                        }
+                        const result = await invokeFilesystemTool("fs_zip", {
+                            entries,
+                            archive_path: archive,
+                            overwrite: !!overwriteField.checked,
+                        });
+                        pushFsLog("fs_zip", result);
+                    } catch (err) {
+                        pushFsLog("fs_zip — ошибка", err.message || err, true);
+                    }
+                });
+            }
+
+            if (fsUnzipForm) {
+                fsUnzipForm.addEventListener("submit", async (event) => {
+                    event.preventDefault();
+                    const archiveField = document.getElementById("fs-unzip-archive");
+                    const destField = document.getElementById("fs-unzip-dest");
+                    const overwriteField = document.getElementById("fs-unzip-overwrite");
+                    try {
+                        const archive = archiveField.value.trim();
+                        const dest = destField.value.trim();
+                        if (!archive || !dest) {
+                            throw new Error("Укажите и архив, и каталог назначения.");
+                        }
+                        const result = await invokeFilesystemTool("fs_unzip", {
+                            archive_path: archive,
+                            dest_path: dest,
+                            overwrite: !!overwriteField.checked,
+                        });
+                        pushFsLog("fs_unzip", result);
+                    } catch (err) {
+                        pushFsLog("fs_unzip — ошибка", err.message || err, true);
+                    }
+                });
+            }
+
+            if (fsReadJsonForm) {
+                fsReadJsonForm.addEventListener("submit", async (event) => {
+                    event.preventDefault();
+                    const pathField = document.getElementById("fs-json-read-path");
+                    try {
+                        const path = pathField.value.trim();
+                        if (!path) throw new Error("Укажите путь к файлу.");
+                        const result = await invokeFilesystemTool("fs_read_json", { path });
+                        if (fsJsonReadOutput) {
+                            fsJsonReadOutput.textContent = JSON.stringify(result.data, null, 2);
+                        }
+                        pushFsLog("fs_read_json", result);
+                    } catch (err) {
+                        if (fsJsonReadOutput) fsJsonReadOutput.textContent = "";
+                        pushFsLog("fs_read_json — ошибка", err.message || err, true);
+                    }
+                });
+            }
+
+            if (fsWriteJsonForm) {
+                fsWriteJsonForm.addEventListener("submit", async (event) => {
+                    event.preventDefault();
+                    const pathField = document.getElementById("fs-json-write-path");
+                    const dataField = document.getElementById("fs-json-write-data");
+                    const overwriteField = document.getElementById("fs-json-write-overwrite");
+                    try {
+                        const path = pathField.value.trim();
+                        if (!path) throw new Error("Укажите путь для записи.");
+                        let parsed;
+                        try {
+                            parsed = JSON.parse(dataField.value);
+                        } catch (jsonErr) {
+                            throw new Error("Некорректный JSON: " + jsonErr.message);
+                        }
+                        const result = await invokeFilesystemTool("fs_write_json", {
+                            path,
+                            data: parsed,
+                            overwrite: !!overwriteField.checked,
+                        });
+                        pushFsLog("fs_write_json", result);
+                    } catch (err) {
+                        pushFsLog("fs_write_json — ошибка", err.message || err, true);
+                    }
+                });
+            }
+        }
+
+        initFsActionForms();
 
         async function ensureRegistryLoaded() {
             if (cachedRegistry) return cachedRegistry;
@@ -284,7 +548,11 @@
         }
 
         async function loadAgentDetails(agentId) {
-            if (!agentId) return;
+            if (!agentId) {
+                resetAgentToolPanels();
+                return;
+            }
+            resetAgentToolPanels();
             try {
                 const resp = await fetch(`/api/agents/${agentId}/`);
                 if (!resp.ok) throw new Error("Failed to load agent");
@@ -381,11 +649,196 @@
                         agentModelSelect.value = currentExplicit;
                     }
                 }
+                loadAgentMcpAccess(agent.id);
             } catch (e) {
                 console.error(e);
                 if (agentDetailsStatus) {
                     agentDetailsStatus.textContent = "Не удалось загрузить данные агента.";
                 }
+                resetAgentToolPanels();
+            }
+        }
+
+        async function loadAgentMcpAccess(agentId) {
+            if (!agentToolsPanelEl || !agentToolsContentEl) return;
+            agentToolsPanelEl.style.display = "block";
+            agentToolsContentEl.textContent = "Загрузка...";
+            filesystemToolMap = {};
+            if (fsActionsPanel) {
+                fsActionsPanel.style.display = "none";
+            }
+            try {
+                const resp = await fetch(`/api/agents/${agentId}/mcp-access/`);
+                if (!resp.ok) {
+                    const txt = await resp.text();
+                    throw new Error(txt || "Не удалось получить доступы.");
+                }
+                const data = await resp.json();
+                renderAgentMcpAccess(data);
+            } catch (err) {
+                console.error(err);
+                agentToolsContentEl.innerHTML =
+                    `<div style="color:#fca5a5;">${err.message || err}</div>`;
+                if (fsActionsPanel) {
+                    fsActionsPanel.style.display = "none";
+                }
+            }
+        }
+
+        function renderAgentMcpAccess(payload) {
+            if (!agentToolsPanelEl || !agentToolsContentEl) return;
+            const bindings = payload.bindings || [];
+            if (!bindings.length) {
+                agentToolsContentEl.innerHTML =
+                    "<div style='color:#9ca3af;'>У агента нет привязанных MCP-серверов.</div>";
+                agentToolsPanelEl.style.display = "block";
+                if (fsActionsPanel) fsActionsPanel.style.display = "none";
+                filesystemToolMap = {};
+                return;
+            }
+            agentToolsPanelEl.style.display = "block";
+            agentToolsContentEl.innerHTML = "";
+
+            let hasFilesystem = false;
+
+            bindings.forEach((binding, index) => {
+                const container = document.createElement("div");
+                container.style.border = "1px solid #1f2937";
+                container.style.borderRadius = "0.5rem";
+                container.style.padding = "0.6rem";
+                container.style.background = "#020617";
+                container.style.marginBottom = "0.6rem";
+
+                const title = document.createElement("div");
+                title.style.fontWeight = "600";
+                title.style.marginBottom = "0.35rem";
+                title.textContent = `Сервер: ${binding.server.name}`;
+                container.appendChild(title);
+
+                const allowAllWrapper = document.createElement("label");
+                allowAllWrapper.style.display = "flex";
+                allowAllWrapper.style.alignItems = "center";
+                allowAllWrapper.style.gap = "0.35rem";
+                allowAllWrapper.style.fontSize = "0.75rem";
+                allowAllWrapper.style.color = "#e5e7eb";
+                const allowAllInput = document.createElement("input");
+                allowAllInput.type = "checkbox";
+                allowAllInput.checked = !!binding.all_allowed;
+                allowAllWrapper.appendChild(allowAllInput);
+                allowAllWrapper.appendChild(
+                    document.createTextNode("Все инструменты (без ограничений)")
+                );
+                container.appendChild(allowAllWrapper);
+
+                const list = document.createElement("div");
+                list.style.display = "grid";
+                list.style.gridTemplateColumns = "repeat(auto-fit, minmax(140px, 1fr))";
+                list.style.gap = "0.25rem";
+                list.style.margin = "0.5rem 0";
+
+                const toolCheckboxes = [];
+                (binding.tools || []).forEach((tool) => {
+                    const item = document.createElement("label");
+                    item.style.display = "flex";
+                    item.style.alignItems = "center";
+                    item.style.gap = "0.35rem";
+                    item.style.fontSize = "0.75rem";
+                    item.style.color = "#e5e7eb";
+                    const checkbox = document.createElement("input");
+                    checkbox.type = "checkbox";
+                    checkbox.value = tool.id;
+                    checkbox.checked =
+                        binding.all_allowed ||
+                        (binding.allowed_tool_ids || []).includes(tool.id);
+                    item.appendChild(checkbox);
+                    item.appendChild(document.createTextNode(tool.name));
+                    if (tool.description) {
+                        item.title = tool.description;
+                    }
+                    list.appendChild(item);
+                    toolCheckboxes.push(checkbox);
+                });
+
+                container.appendChild(list);
+
+                const buttonsRow = document.createElement("div");
+                buttonsRow.style.display = "flex";
+                buttonsRow.style.alignItems = "center";
+                buttonsRow.style.gap = "0.5rem";
+
+                const saveBtn = document.createElement("button");
+                saveBtn.textContent = "Сохранить доступ";
+                saveBtn.style.background = "#2563eb";
+                saveBtn.style.border = "none";
+                saveBtn.style.color = "#e5e7eb";
+                saveBtn.style.borderRadius = "0.375rem";
+                saveBtn.style.padding = "0.35rem 0.7rem";
+                saveBtn.style.fontSize = "0.8rem";
+                saveBtn.style.cursor = "pointer";
+
+                const status = document.createElement("div");
+                status.style.fontSize = "0.75rem";
+                status.style.color = "#9ca3af";
+
+                buttonsRow.appendChild(saveBtn);
+                buttonsRow.appendChild(status);
+                container.appendChild(buttonsRow);
+
+                const updateCheckboxState = () => {
+                    const disabled = allowAllInput.checked;
+                    toolCheckboxes.forEach((box) => {
+                        box.disabled = disabled;
+                    });
+                };
+                updateCheckboxState();
+                allowAllInput.addEventListener("change", updateCheckboxState);
+
+                saveBtn.addEventListener("click", async () => {
+                    status.textContent = "Сохранение…";
+                    saveBtn.disabled = true;
+                    try {
+                        const payload = {
+                            server_id: binding.server.id,
+                            allowed_tool_ids: allowAllInput.checked
+                                ? []
+                                : toolCheckboxes.filter((box) => box.checked).map((box) => Number(box.value)),
+                        };
+                        const resp = await fetch(`/api/agents/${currentAgentId}/mcp-access/`, {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json",
+                                "X-CSRFToken": getCookie("csrftoken") || "",
+                            },
+                            body: JSON.stringify(payload),
+                        });
+                        if (!resp.ok) {
+                            const txt = await resp.text();
+                            throw new Error(txt || "Не удалось сохранить");
+                        }
+                        status.textContent = "Сохранено";
+                        if (currentAgentId) {
+                            loadAgentMcpAccess(currentAgentId);
+                        }
+                    } catch (err) {
+                        status.textContent = err.message || "Ошибка";
+                    } finally {
+                        saveBtn.disabled = false;
+                    }
+                });
+
+                agentToolsContentEl.appendChild(container);
+
+                if (binding.server.name.toLowerCase().includes("filesystem")) {
+                    hasFilesystem = true;
+                    filesystemToolMap = {};
+                    (binding.tools || []).forEach((tool) => {
+                        filesystemToolMap[tool.name] = tool.id;
+                    });
+                }
+            });
+
+            if (fsActionsPanel) {
+                fsActionsPanel.style.display = hasFilesystem ? "block" : "none";
             }
         }
 
@@ -412,6 +865,7 @@
                 chatMessages.innerHTML = "";
                 chatStatus.textContent = "Новый диалог с агентом: " + button.textContent.trim();
                 updateAgentsSelection();
+                resetAgentToolPanels();
                 loadAgentDetails(currentAgentId);
             });
             if (!currentAgentId) {
@@ -472,11 +926,63 @@
                     (msg.sender === "assistant" ? "Ассистент" : "Система");
                 const color = msg.sender === "user" ? "#bfdbfe" :
                     (msg.sender === "assistant" ? "#bbf7d0" : "#e5e7eb");
-                wrapper.innerHTML = `<div style="font-size:0.75rem;color:#9ca3af;margin-bottom:0.1rem;">${sender}</div>
+                const bubble = document.createElement("div");
+                bubble.innerHTML = `<div style="font-size:0.75rem;color:#9ca3af;margin-bottom:0.1rem;">${sender}</div>
                                      <div style="padding:0.35rem 0.5rem;border-radius:0.375rem;background:#020617;border:1px solid #1f2937;color:${color};white-space:pre-wrap;">${msg.content}</div>`;
+                wrapper.appendChild(bubble);
+
+                const traces = Array.isArray(msg.meta?.tool_traces) ? msg.meta.tool_traces : [];
+                if (traces.length) {
+                    const traceBox = document.createElement("div");
+                    traceBox.style.marginTop = "0.25rem";
+                    traceBox.style.fontSize = "0.7rem";
+                    traceBox.style.color = "#a1a1aa";
+                    traceBox.style.border = "1px solid #1f2937";
+                    traceBox.style.borderRadius = "0.375rem";
+                    traceBox.style.background = "#0f172a";
+                    traceBox.style.padding = "0.35rem 0.5rem";
+                    traceBox.innerHTML = "<strong>tool_traces</strong>";
+
+                    traces.forEach(trace => {
+                        const item = document.createElement("div");
+                        item.style.marginTop = "0.2rem";
+                        const payload = trace.payload ? JSON.stringify(trace.payload, null, 2) : "";
+                        item.innerHTML = `
+                            <div>• ${trace.function || "tool"} (${trace.tool_call_id || "n/a"})</div>
+                            <pre style="white-space:pre-wrap;margin:0.1rem 0 0;">${payload}</pre>
+                        `;
+                        traceBox.appendChild(item);
+                    });
+
+                    wrapper.appendChild(traceBox);
+                }
                 chatMessages.appendChild(wrapper);
             });
             scrollChatToBottom();
+        }
+
+        async function sendAssistantMessage(projectId, agentId, text, conversationId) {
+            const payload = {
+                message: text,
+                agent_id: Number(agentId),
+            };
+            if (conversationId) {
+                payload.conversation_id = conversationId;
+            }
+
+            const response = await fetch(`/api/projects/${projectId}/assistant/chat/`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-CSRFToken": getCookie("csrftoken") || "",
+                },
+                body: JSON.stringify(payload),
+            });
+            if (!response.ok) {
+                const textErr = await response.text();
+                throw new Error(textErr || "Ошибка ответа сервера");
+            }
+            return response.json();
         }
 
         if (chatForm) {
@@ -497,28 +1003,13 @@
                 chatForm.querySelector("button[type=submit]").disabled = true;
                 chatStatus.textContent = "Отправка...";
 
-                const payload = {
-                    message: text,
-                    agent_id: Number(currentAgentId),
-                };
-                if (currentConversationId) {
-                    payload.conversation_id = currentConversationId;
-                }
-
                 try {
-                    const response = await fetch(`/api/projects/${projectId}/assistant/chat/`, {
-                        method: "POST",
-                        headers: {
-                            "Content-Type": "application/json",
-                            "X-CSRFToken": getCookie("csrftoken") || "",
-                        },
-                        body: JSON.stringify(payload),
-                    });
-                    if (!response.ok) {
-                        const textErr = await response.text();
-                        throw new Error(textErr || "Ошибка ответа сервера");
-                    }
-                    const data = await response.json();
+                    const data = await sendAssistantMessage(
+                        projectId,
+                        currentAgentId,
+                        text,
+                        currentConversationId,
+                    );
                     currentConversationId = data.conversation_id;
                     appendMessages(data.messages || []);
                     chatInput.value = "";

@@ -126,3 +126,6 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": crontab(day_of_month=1, hour=3, minute=0),
     },
 }
+
+# MCP HTTP settings
+MCP_HTTP_ORIGIN = "http://command-center"

@@ -1,0 +1,29 @@
+version: "3.9"
+
+services:
+  filesystem-mcp:
+    image: mekayelanik/filesystem-mcp:stable
+    container_name: filesystem-mcp
+    restart: unless-stopped
+    ports:
+      - "${MCP_FILESYSTEM_PORT:-8015}:8015"
+    volumes:
+      - ${MCP_FILESYSTEM_PROJECT_DIRS:-/home/user/projects}:/home/user/projects
+    environment:
+      PORT: "${MCP_FILESYSTEM_PORT:-8015}"
+      PUID: "${MCP_FILESYSTEM_PUID:-1000}"
+      PGID: "${MCP_FILESYSTEM_PGID:-1000}"
+      PROJECT_DIRS: "${MCP_FILESYSTEM_PROJECT_DIRS:-/home/user/projects}"
+      PROTOCOL: "SHTTP"  # HTTP /mcp endpoint
+    networks:
+      - mcp-net
+
+networks:
+  mcp-net:
+    external: true
+
+# ВАЖНО:
+# Этот файл приведён как пример конфигурации MCP-сервера.
+# Для локальной разработки создайте docker-compose.mcp.local.yml
+# (он должен быть добавлен в .gitignore) и настраивайте его там.
+

@@ -1,3 +1,4 @@
+import json
 import mimetypes
 import os
 
@@ -328,14 +329,17 @@ class AgentInvokeView(APIView):
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": message})
 
+        request_kwargs = {
+            "model": model_name,
+            "messages": messages,
+            "temperature": agent.temperature,
+            "timeout": 30,
+        }
+        if isinstance(agent.max_tokens, int) and agent.max_tokens > 0:
+            request_kwargs["max_tokens"] = agent.max_tokens
+
         try:
-            completion = client.chat.completions.create(
-                model=model_name,
-                messages=messages,
-                temperature=agent.temperature,
-                max_tokens=agent.max_tokens,
-                timeout=30,
-            )
+            completion = client.chat.completions.create(**request_kwargs)
             reply = completion.choices[0].message.content or ""
         except NotFoundError as exc:
             logger.warning(
@@ -387,16 +391,17 @@ class AgentInvokeView(APIView):
         available_tools = []
         bindings = (
             AgentServerBinding.objects.select_related("server")
+            .prefetch_related("allowed_tools")
             .filter(agent=agent)
-            .all()
         )
 
         for binding in bindings:
             server = binding.server
-            tools_qs = MCPTool.objects.filter(server=server, is_active=True)
-            allowed = binding.allowed_tools or []
-            if allowed:
-                tools_qs = tools_qs.filter(name__in=allowed)
+            allowed_qs = binding.allowed_tools.filter(is_active=True)
+            if allowed_qs.exists():
+                tools_qs = allowed_qs
+            else:
+                tools_qs = server.tools.filter(is_active=True)
 
             tool_names = list(tools_qs.values_list("name", flat=True))
             available_tools.append(
@@ -417,12 +422,385 @@ class AgentInvokeView(APIView):
         )
 
 
+class AgentMCPAccessView(APIView):
+    """
+    Возвращает и обновляет доступ агента к MCP-инструментам.
+    """
+
+    def _serialize_binding(self, binding: AgentServerBinding) -> Dict[str, Any]:
+        server = binding.server
+        tools = server.tools.filter(is_active=True).order_by("name")
+        allowed_ids = list(binding.allowed_tools.values_list("id", flat=True))
+        return {
+            "server": {
+                "id": server.id,
+                "name": server.name,
+            },
+            "all_allowed": len(allowed_ids) == 0,
+            "allowed_tool_ids": allowed_ids,
+            "tools": [
+                {
+                    "id": tool.id,
+                    "name": tool.name,
+                    "description": tool.description or "",
+                }
+                for tool in tools
+            ],
+        }
+
+    def get(self, request, agent_id: int):
+        agent = generics.get_object_or_404(Agent, pk=agent_id, is_active=True)
+        bindings = (
+            AgentServerBinding.objects.select_related("server")
+            .prefetch_related("allowed_tools", "server__tools")
+            .filter(agent=agent)
+        )
+        data = [self._serialize_binding(binding) for binding in bindings]
+        return Response({"agent_id": agent.id, "bindings": data})
+
+    def post(self, request, agent_id: int):
+        agent = generics.get_object_or_404(Agent, pk=agent_id, is_active=True)
+        server_id = request.data.get("server_id")
+        if server_id is None:
+            raise ValidationError({"server_id": "This field is required."})
+
+        try:
+            server = MCPServer.objects.get(id=int(server_id))
+        except (ValueError, MCPServer.DoesNotExist) as exc:  # noqa: PERF203
+            raise ValidationError({"server_id": "Server not found."}) from exc
+
+        binding, _ = AgentServerBinding.objects.get_or_create(agent=agent, server=server)
+        allowed_tool_ids = request.data.get("allowed_tool_ids", [])
+        if allowed_tool_ids in (None, []):
+            binding.allowed_tools.clear()
+        else:
+            if not isinstance(allowed_tool_ids, list):
+                raise ValidationError({"allowed_tool_ids": "Must be a list of tool IDs."})
+            try:
+                allowed_ids_int = [int(tool_id) for tool_id in allowed_tool_ids]
+            except (TypeError, ValueError) as exc:  # noqa: PERF203
+                raise ValidationError({"allowed_tool_ids": "Must contain integer IDs."}) from exc
+            tools_qs = server.tools.filter(is_active=True, id__in=allowed_ids_int)
+            if tools_qs.count() != len(set(allowed_ids_int)):
+                raise ValidationError({"allowed_tool_ids": "Contains invalid IDs for this server."})
+            binding.allowed_tools.set(tools_qs)
+
+        binding.refresh_from_db()
+        return Response(self._serialize_binding(binding))
+
+
 class ConversationDetailView(generics.RetrieveAPIView):
     queryset = Conversation.objects.all()
     serializer_class = ConversationDetailSerializer
 
 
 class AssistantChatView(APIView):
+    MAX_TOOL_ITERATIONS = 5
+
+    def _build_mcp_tools(self, agent: Agent):
+        tool_definitions: list[dict] = []
+        lookup: dict[str, tuple[MCPServer, MCPTool]] = {}
+
+        bindings = (
+            AgentServerBinding.objects.select_related("server")
+            .prefetch_related("allowed_tools")
+            .filter(agent=agent, server__is_active=True)
+        )
+
+        for binding in bindings:
+            server = binding.server
+            allowed_qs = binding.allowed_tools.filter(is_active=True)
+            if allowed_qs.exists():
+                tools_qs = allowed_qs
+            else:
+                tools_qs = server.tools.filter(is_active=True)
+
+            for tool in tools_qs:
+                function_name = f"mcp_tool_{tool.id}"
+                description = tool.description.strip() if tool.description else ""
+                if description:
+                    desc_text = f"[{server.name}] {description}"
+                else:
+                    desc_text = f"[{server.name}] MCP tool '{tool.name}'"
+
+                parameters = tool.input_schema or {}
+                if not isinstance(parameters, dict):
+                    parameters = {}
+                parameters = dict(parameters)
+                if not parameters:
+                    parameters = {"type": "object", "properties": {}}
+                parameters.setdefault("type", "object")
+                parameters.setdefault("properties", {})
+
+                tool_definitions.append(
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": function_name,
+                            "description": desc_text,
+                            "parameters": parameters,
+                        },
+                    }
+                )
+                lookup[function_name] = (server, tool)
+
+        return tool_definitions, lookup
+
+    def _build_delegate_tools(self, agent: Agent):
+        tool_definitions: list[dict] = []
+        lookup: dict[str, Agent] = {}
+
+        delegates = agent.delegates.filter(is_active=True)
+        for delegate in delegates:
+            function_name = f"delegate_to_agent_{delegate.id}"
+            tool_definitions.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": function_name,
+                        "description": (
+                            f"Делегировать задачу агенту «{delegate.name}». "
+                            "Используй этот инструмент для задач в зоне ответственности этого агента."
+                        ),
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "task": {
+                                    "type": "string",
+                                    "description": "Текст задачи, которую нужно выполнить.",
+                                }
+                            },
+                            "required": ["task"],
+                        },
+                    },
+                }
+            )
+            lookup[function_name] = delegate
+
+        return tool_definitions, lookup
+
+    def _run_delegate_agent_once(self, delegate: Agent, project: Project, task: str, client: OpenAI) -> tuple[str, list[dict]]:
+        messages = []
+        if delegate.system_prompt:
+            messages.append({"role": "system", "content": delegate.system_prompt})
+        messages.append({"role": "user", "content": task})
+
+        mcp_tool_defs, mcp_tool_lookup = self._build_mcp_tools(delegate)
+        delegate_tool_defs, delegate_lookup = self._build_delegate_tools(delegate)
+        tool_definitions = mcp_tool_defs + delegate_tool_defs
+
+        reply, traces = self._chat_with_tools(
+            client=client,
+            base_messages=messages,
+            agent=delegate,
+            model_name=delegate.resolved_model_name,
+            temperature=delegate.temperature,
+            max_tokens=delegate.max_tokens,
+            tool_definitions=tool_definitions,
+            mcp_tool_lookup=mcp_tool_lookup,
+            delegate_lookup=delegate_lookup,
+            project=project,
+        )
+        return reply, traces
+
+    def _handle_tool_call(
+        self,
+        tool_call,
+        mcp_tool_lookup: dict[str, tuple[MCPServer, MCPTool]],
+        delegate_lookup: dict[str, Agent],
+        project: Project,
+        client: OpenAI,
+    ) -> dict:
+        function = getattr(tool_call, "function", None)
+        name = getattr(function, "name", None) or ""
+        arguments_raw = getattr(function, "arguments", "") or ""
+        try:
+            arguments = json.loads(arguments_raw) if arguments_raw else {}
+        except json.JSONDecodeError:
+            return {
+                "status": "error",
+                "message": "Не удалось распарсить аргументы инструмента.",
+                "raw_arguments": arguments_raw,
+            }
+
+        if name in mcp_tool_lookup:
+            server, tool = mcp_tool_lookup[name]
+            try:
+                result = call_tool(server, tool, arguments or {})
+                logger.info(
+                    "Tool call succeeded: server=%s tool=%s function=%s args=%s",
+                    server.name,
+                    tool.name,
+                    name,
+                    arguments,
+                )
+                return {
+                    "status": "ok",
+                    "type": "mcp",
+                    "server": server.name,
+                    "tool": tool.name,
+                    "result": result,
+                }
+            except MCPClientError as exc:
+                logger.warning(
+                    "Tool call failed: server=%s tool=%s function=%s error=%s",
+                    server.name,
+                    tool.name,
+                    name,
+                    exc,
+                )
+                return {
+                    "status": "error",
+                    "type": "mcp",
+                    "server": server.name,
+                    "tool": tool.name,
+                    "message": str(exc),
+                    "code": exc.code,
+                }
+
+        if name in delegate_lookup:
+            delegate = delegate_lookup[name]
+            task = arguments.get("task")
+            if not isinstance(task, str) or not task.strip():
+                return {
+                    "status": "error",
+                    "type": "delegate",
+                    "delegate": delegate.name,
+                    "message": "Поле 'task' обязательно и должно быть непустой строкой.",
+                }
+            try:
+                response, delegate_traces = self._run_delegate_agent_once(delegate, project, task, client)
+                logger.info(
+                    "Delegate tool call succeeded: delegate=%s function=%s task=%s",
+                    delegate.name,
+                    name,
+                    task,
+                )
+                return {
+                    "status": "ok",
+                    "type": "delegate",
+                    "delegate": delegate.name,
+                    "response": response,
+                    "tool_traces": delegate_traces,
+                }
+            except OpenAIError as exc:
+                logger.error(
+                    "Delegate agent %s failed: %s",
+                    delegate.id,
+                    exc,
+                )
+                return {
+                    "status": "error",
+                    "type": "delegate",
+                    "delegate": delegate.name,
+                    "message": f"Ошибка при вызове агента '{delegate.name}': {exc}",
+                }
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Unexpected error while running delegate agent %s", delegate.id)
+                return {
+                    "status": "error",
+                    "type": "delegate",
+                    "delegate": delegate.name,
+                    "message": f"Не удалось выполнить задачу делегату: {exc}",
+                }
+
+        return {
+            "status": "error",
+            "message": f"Неизвестный инструмент: {name}",
+        }
+
+    def _chat_with_tools(
+        self,
+        client: OpenAI,
+        base_messages: list[dict],
+        agent: Agent,
+        model_name: str,
+        temperature: float,
+        max_tokens: int | None,
+        tool_definitions: list[dict],
+        mcp_tool_lookup: dict[str, tuple[MCPServer, MCPTool]],
+        delegate_lookup: dict[str, Agent],
+        project: Project,
+    ) -> tuple[str, list[dict]]:
+        base_kwargs = {
+            "model": model_name,
+            "temperature": temperature,
+            "timeout": 30,
+        }
+        if isinstance(max_tokens, int) and max_tokens > 0:
+            base_kwargs["max_tokens"] = max_tokens
+        require_tools = bool(tool_definitions) and agent.tool_mode == Agent.ToolMode.REQUIRED
+
+        if tool_definitions:
+            base_kwargs["tools"] = tool_definitions
+            base_kwargs["tool_choice"] = "auto"
+
+        messages = list(base_messages)
+        tool_traces: list[dict] = []
+        iterations = 0
+        used_tools = False
+
+        while True:
+            request_kwargs = dict(base_kwargs)
+            request_kwargs["messages"] = messages
+            completion = client.chat.completions.create(**request_kwargs)
+            choice = completion.choices[0].message
+            reply_text = choice.content or ""
+            tool_calls = getattr(choice, "tool_calls", None) or []
+
+            if require_tools and not tool_calls and not used_tools:
+                logger.warning(
+                    "Agent %s in REQUIRED tool_mode returned no tool_calls despite available tools",
+                    agent.id,
+                )
+                warning_reply = (
+                    "Модель не вызвала ни одного инструмента, хотя должна была. "
+                    "Попробуйте повторить запрос или уточнить задачу."
+                )
+                return warning_reply, tool_traces
+
+            if not tool_calls:
+                return reply_text, tool_traces
+
+            assistant_entry = {
+                "role": "assistant",
+                "content": reply_text or "",
+                "tool_calls": [
+                    {
+                        "id": tc.id,
+                        "type": tc.type,
+                        "function": {
+                            "name": getattr(tc.function, "name", ""),
+                            "arguments": getattr(tc.function, "arguments", ""),
+                        },
+                    }
+                    for tc in tool_calls
+                ],
+            }
+            messages.append(assistant_entry)
+
+            for tc in tool_calls:
+                tool_payload = self._handle_tool_call(tc, mcp_tool_lookup, delegate_lookup, project, client)
+                tool_traces.append(
+                    {
+                        "tool_call_id": tc.id,
+                        "function": getattr(tc.function, "name", ""),
+                        "payload": tool_payload,
+                    }
+                )
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc.id,
+                        "content": json.dumps(tool_payload, ensure_ascii=False),
+                    }
+                )
+                used_tools = True
+
+            iterations += 1
+            if iterations >= self.MAX_TOOL_ITERATIONS:
+                return reply_text + "\n\n[system] Достигнут лимит вызовов инструментов.", tool_traces
+
     def post(self, request, project_id: int):
         project = generics.get_object_or_404(Project, pk=project_id)
 
@@ -464,6 +842,8 @@ class AssistantChatView(APIView):
                     },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+
+        agent = Agent.objects.prefetch_related("delegates").get(pk=agent.id)
 
         conversation = None
         if conversation_id is not None:
@@ -570,15 +950,38 @@ class AssistantChatView(APIView):
 
         model_name = agent.resolved_model_name
 
+        mcp_tool_defs, mcp_tool_lookup = self._build_mcp_tools(agent)
+        delegate_tool_defs, delegate_lookup = self._build_delegate_tools(agent)
+        tool_definitions = mcp_tool_defs + delegate_tool_defs
+
+        if tool_definitions and agent.tool_mode == Agent.ToolMode.REQUIRED:
+            reminder = (
+                "У тебя есть инструменты и/или агенты-делегаты. "
+                "Ты ОБЯЗАН вызвать как минимум один инструмент перед тем, как дать итоговый ответ."
+            )
+            if system_prompt:
+                messages[0]["content"] = messages[0]["content"] + "\n\n" + reminder
+            else:
+                messages.insert(0, {"role": "system", "content": reminder})
+        elif agent.tool_mode == Agent.ToolMode.REQUIRED and not tool_definitions:
+            logger.warning(
+                "Agent %s is in REQUIRED tool_mode but has no available tools/delegates",
+                agent.id,
+            )
+
         try:
-            completion = client.chat.completions.create(
-                model=model_name,
-                messages=messages,
+            reply_text, tool_traces = self._chat_with_tools(
+                client=client,
+                base_messages=messages,
+                agent=agent,
+                model_name=model_name,
                 temperature=agent.temperature,
                 max_tokens=agent.max_tokens,
-                timeout=30,
+                tool_definitions=tool_definitions,
+                mcp_tool_lookup=mcp_tool_lookup,
+                delegate_lookup=delegate_lookup,
+                project=project,
             )
-            reply_text = completion.choices[0].message.content or ""
         except NotFoundError as exc:
             logger.warning(
                 "OpenAI model_not_found in assistant chat for agent %s: model_name=%s resolved=%s error=%s",
@@ -591,6 +994,7 @@ class AssistantChatView(APIView):
                 f"Похоже, выбранная модель ('{agent.resolved_model_name}') больше не доступна в OpenAI. "
                 "Зайдите в настройки агента и выберите другую модель из списка."
             )
+            tool_traces = []
         except AuthenticationError as exc:
             logger.error(
                 "OpenAI authentication error in assistant chat for agent %s: %s",
@@ -598,6 +1002,7 @@ class AssistantChatView(APIView):
                 exc,
             )
             reply_text = "Проблема с ключом OpenAI. Обратитесь к администратору или проверьте настройки."
+            tool_traces = []
         except OpenAIError as exc:
             logger.error(
                 "OpenAI error in assistant chat for agent %s: %s",
@@ -605,12 +1010,17 @@ class AssistantChatView(APIView):
                 exc,
             )
             reply_text = "Сейчас не удалось связаться с LLM. Попробуйте ещё раз позже."
+            tool_traces = []
+
+        assistant_meta = {}
+        if tool_traces:
+            assistant_meta["tool_traces"] = tool_traces
 
         assistant_message = Message.objects.create(
             conversation=conversation,
             sender=Message.ROLE_ASSISTANT,
             content=reply_text,
-            meta={},
+            meta=assistant_meta,
         )
 
         messages_data = MessageSerializer(

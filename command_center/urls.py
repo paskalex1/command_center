@@ -5,6 +5,7 @@ from core.views import (
     AgentDetailView,
     AgentInvokeView,
     AgentListView,
+    AgentMCPAccessView,
     AssistantChatView,
     ConversationDetailView,
     KnowledgeBaseCreateView,
@@ -40,6 +41,11 @@ urlpatterns = [
         "api/agents/<int:agent_id>/invoke/",
         AgentInvokeView.as_view(),
         name="api-agent-invoke",
+    ),
+    path(
+        "api/agents/<int:agent_id>/mcp-access/",
+        AgentMCPAccessView.as_view(),
+        name="api-agent-mcp-access",
     ),
     path(
         "api/models/registry/",
