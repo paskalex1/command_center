@@ -4,6 +4,22 @@
 
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.0.0/).
 
+## [0.3.0] — 2025-11-29
+
+### Добавлено
+
+- **Graph Memory v1**: модели `KnowledgeNode`/`KnowledgeEdge`, Graph Extractor на базе LLM, автоматическое извлечение графа из MemoryEvent и UI-доступ к узлам/связям (с фильтром pinned).
+- **RAG слой**: сервис `build_rag_memory_block` ищет top-K `KnowledgeEmbedding`, формирует блок `AGENT RAG DOCUMENTS` и добавляет `rag_recall` в `tool_traces`.
+- **Tool traces** теперь фиксируют три типа (`memory_recall`, `graph_recall`, `rag_recall`) и отображаются в Assistant Chat и делегировании.
+- **Автотесты**: unit-наборы для Graph Extractor, Graph Memory retrieval и Graph Cleanup (`python manage.py test core.tests.Graph*`).
+
+### Изменено
+
+- `build_agent_llm_messages` возвращает пять артефактов (messages + memory + graph + rag) и строит контекст в порядке SYSTEM → MEMORY → GRAPH → RAG → HISTORY → USER.
+- AssistantChatView и делегирование используют `_prepend_recall_traces`, чтобы всегда добавлять summary по памяти/графу/RAG в `tool_traces`; метаданные ответов содержат `graph_nodes` и `rag_documents`.
+- README обновлён: описаны Graph/RAG слои, убраны локальные пути, уточнены инструкции по запуску и Filesystem MCP actions.
+- `cleanup_graph_memory` стал usage-осмысленным: защищённые узлы (`is_pinned`) не удаляются, висячие и неиспользованные чистятся первыми, заведены `usage_count` и `last_used_at`, лимиты управляются через настройки.
+
 ## [0.2.0] — 2025-11-27
 
 ### Добавлено
@@ -43,4 +59,3 @@
   - чат с выбранным агентом;
   - панель MCP‑серверов, инструментов, пайплайнов и памяти;
   - блок LLM Registry с текущими моделями и кнопкой “Sync from OpenAI”.
-

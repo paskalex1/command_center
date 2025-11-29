@@ -11,9 +11,20 @@
 - **Агенты** — OpenAI‑агенты с привязкой к MCP‑инструментам, режимами работы (`auto/required`) и выбором модели из LLM Registry.
 - **Делегирование** — агенты могут вызывать друг друга через generated tools (`delegate_to_agent_*`).
 - **Личный ассистент** — диалоги, долговременная память, поиск по MemoryEvent и `tool_traces` для каждого ответа.
+- **Многоуровневая память** — AGENT MEMORY (AgentMemory) + AGENT GRAPH MEMORY (KnowledgeNode/Edge) + AGENT RAG DOCUMENTS (KnowledgeEmbedding) автоматически добавляются в системный контекст каждого запроса.
 - **Пайплайны** — последовательности шагов (агенты + инструменты), выполняемые через Celery.
 - **UI командного центра** — проекты, агенты, чат, память, MCP и пайплайны + новый блок управления доступами к инструментам и быстрые действия для Filesystem MCP (архивы, JSON/YAML и т.д.).
 - **LLM Registry** — централизованный реестр доступных LLM‑моделей, синхронизируемый с OpenAI.
+
+## Память и знания агента
+
+Каждый ответ агента автоматически строится на основе трёх слоёв знаний:
+
+1. **AGENT MEMORY** — релевантные записи из `AgentMemory` (факты/предпочтения).
+2. **AGENT GRAPH MEMORY** — ближайшие узлы графа (`KnowledgeNode/Edge`) + их связи.
+3. **AGENT RAG DOCUMENTS** — top‑K фрагментов внешней документации (`KnowledgeEmbedding`).
+
+Эти блоки попадают в системный контекст перед историей диалога, а их содержимое отображается в `tool_traces` как `memory_recall`, `graph_recall`, `rag_recall`.
 
 ## Стек
 
@@ -83,23 +94,23 @@
 
 ## Быстрые действия Filesystem MCP
 
-В веб‑интерфейсе (панель справа) появился отдельный блок для Filesystem MCP:
+В веб-интерфейсе (панель справа) есть отдельный блок для Filesystem MCP:
 
 - переключатели доступа к MCP‑инструментам по каждому серверу;
-- формы для «быстрых действий»: `fs_zip`, `fs_unzip`, `fs_read_json`, `fs_write_json` (список расширяется по мере добавления инструментов);
-- журнал выполненных команд (все ответы MCP попадают в лог, ошибки подсвечены красным);
+- формы для «быстрых действий» (`fs_zip`, `fs_unzip`, `fs_read_json`, `fs_write_json`, …);
+- журнал выполненных команд (ответы MCP попадают в лог, ошибки подсвечены красным);
 - панель автоматически скрывается, если у выбранного агента нет доступа к Filesystem MCP.
 
 ## Smoke‑тесты Filesystem MCP
 
-Для проверки MCP‑инструментов без UI используется минимальный smoke‑набор `tests/test_smoke.py` в проекте `filesystem-mcp`. Он проверяет initialize → tools.list → запись/чтение файла → zip/unzip → JSON read/write.
+Для проверки MCP‑инструментов без UI предусмотрен минимальный smoke‑набор `tests/test_smoke.py` в проекте `filesystem-mcp`. Он проверяет initialize → tools.list → запись/чтение файла → zip/unzip → JSON read/write.
 
 ```bash
-cd /Users/paskalex/Work/mcp/filesystem-mcp
+cd filesystem-mcp
 MCP_BASE_URL=http://localhost:8020/mcp python3 -m unittest tests.test_smoke
 ```
 
-Перед запуском убедитесь, что контейнер Filesystem MCP поднят (`docker-compose up -d` в `/Users/paskalex/Work/mcp/filesystem-mcp`).
+Перед запуском убедитесь, что контейнер Filesystem MCP поднят (`docker-compose up -d` внутри каталога `filesystem-mcp`).
 
 ## LLM Registry
 
