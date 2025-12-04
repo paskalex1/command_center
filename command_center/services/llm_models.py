@@ -6,8 +6,12 @@ from typing import Dict, List, Set
 from django.conf import settings
 from openai import OpenAI
 
+from command_center.llm_registry import load_registry
+
 
 REGISTRY_PATH = Path(settings.BASE_DIR) / "command_center" / "config" / "models_registry.json"
+
+RESPONSES_ONLY_KEYWORDS = ("-codex", "-code")
 
 
 PREFERRED_CHAT_ORDER: List[str] = [
@@ -78,6 +82,9 @@ def sync_models_registry() -> Dict[str, object]:
             embedding_models.add(m_id)
         elif category == "code":
             code_models.add(m_id)
+            chat_models.add(m_id)
+            if any(x in m_id.lower() for x in ["mini", "nano", "small"]):
+                lightweight_models.add(m_id)
         elif category == "realtime":
             realtime_models.add(m_id)
         elif category == "search":
@@ -131,3 +138,20 @@ def sync_models_registry() -> Dict[str, object]:
 
     return registry
 
+
+def requires_responses_api(model_name: str) -> bool:
+    """
+    Возвращает True, если указанная модель доступна только через Responses API.
+    """
+    if not model_name:
+        return False
+    lowered = model_name.lower()
+    if any(keyword in lowered for keyword in RESPONSES_ONLY_KEYWORDS):
+        return True
+
+    # Проверяем секцию "code" в реестре моделей.
+    registry = load_registry()
+    code_models = registry.get("code") or []
+    if isinstance(code_models, list):
+        return lowered in {str(item).lower() for item in code_models if isinstance(item, str)}
+    return False

@@ -8,6 +8,7 @@ from .models import (
     MCPServer,
     MCPTool,
     Message,
+    MessageAttachment,
     Pipeline,
     PipelineStep,
     Project,
@@ -18,8 +19,8 @@ from .models import (
 class ProjectSerializer(serializers.ModelSerializer):
     class Meta:
         model = Project
-        fields = ["id", "name", "description", "created_at"]
-        read_only_fields = ["id", "created_at"]
+        fields = ["id", "slug", "name", "description", "created_at"]
+        read_only_fields = ["id", "slug", "created_at"]
 
 
 class KnowledgeBaseSerializer(serializers.ModelSerializer):
@@ -54,6 +55,7 @@ class AgentSerializer(serializers.ModelSerializer):
         model = Agent
         fields = [
             "id",
+            "slug",
             "project",
             "name",
             "system_prompt",
@@ -67,14 +69,46 @@ class AgentSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "resolved_model_name", "created_at", "updated_at"]
+        read_only_fields = [
+            "slug",
+            "id",
+            "resolved_model_name",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class MessageAttachmentSerializer(serializers.ModelSerializer):
+    url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MessageAttachment
+        fields = [
+            "id",
+            "original_name",
+            "mime_type",
+            "size",
+            "url",
+            "is_image",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+    def get_url(self, obj) -> str:
+        request = self.context.get("request")
+        url = obj.file.url
+        if request:
+            return request.build_absolute_uri(url)
+        return url
 
 
 class MessageSerializer(serializers.ModelSerializer):
+    attachments = MessageAttachmentSerializer(many=True, read_only=True)
+
     class Meta:
         model = Message
-        fields = ["id", "sender", "content", "meta", "created_at"]
-        read_only_fields = ["id", "sender", "meta", "created_at"]
+        fields = ["id", "sender", "content", "meta", "attachments", "created_at"]
+        read_only_fields = ["id", "sender", "meta", "attachments", "created_at"]
 
 
 class ConversationSerializer(serializers.ModelSerializer):
@@ -115,6 +149,7 @@ class MCPServerSerializer(serializers.ModelSerializer):
         model = MCPServer
         fields = [
             "id",
+            "slug",
             "name",
             "description",
             "base_url",
@@ -122,10 +157,19 @@ class MCPServerSerializer(serializers.ModelSerializer):
             "command_args",
             "transport",
             "is_active",
+            "last_synced_at",
+            "last_error",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = [
+            "id",
+            "slug",
+            "last_synced_at",
+            "last_error",
+            "created_at",
+            "updated_at",
+        ]
 
 
 class MCPToolSerializer(serializers.ModelSerializer):

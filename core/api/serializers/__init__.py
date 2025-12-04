@@ -1,0 +1,3 @@
+"""
+API serializers namespace.
+"""

@@ -1,12 +1,18 @@
+from django.conf import settings
+from django.conf.urls.static import static
 from django.contrib import admin
-from django.urls import path
+from django.urls import include, path
 
 from core.views import (
     AgentDetailView,
+    AgentGraphEdgesView,
+    AgentGraphNodesView,
     AgentInvokeView,
     AgentListView,
     AgentMCPAccessView,
+    AgentMemoryListView,
     AssistantChatView,
+    AssistantConversationView,
     ConversationDetailView,
     KnowledgeBaseCreateView,
     KnowledgeDocumentCreateView,
@@ -24,12 +30,15 @@ from core.views import (
     LLMRegistryView,
     LLMRegistrySyncView,
     dashboard_view,
+    memory_view,
     health_check,
 )
 
 urlpatterns = [
     path("", dashboard_view, name="ui-dashboard"),
+    path("memory/", memory_view, name="ui-memory"),
     path("admin/", admin.site.urls),
+    path("api/", include("core.api.urls")),
     path("api/health", health_check, name="api-health"),
     path("api/agents/", AgentListView.as_view(), name="api-agents"),
     path(
@@ -46,6 +55,21 @@ urlpatterns = [
         "api/agents/<int:agent_id>/mcp-access/",
         AgentMCPAccessView.as_view(),
         name="api-agent-mcp-access",
+    ),
+    path(
+        "api/agents/<int:agent_id>/memories/",
+        AgentMemoryListView.as_view(),
+        name="api-agent-memories",
+    ),
+    path(
+        "api/agents/<int:agent_id>/graph/nodes/",
+        AgentGraphNodesView.as_view(),
+        name="api-agent-graph-nodes",
+    ),
+    path(
+        "api/agents/<int:agent_id>/graph/edges/",
+        AgentGraphEdgesView.as_view(),
+        name="api-agent-graph-edges",
     ),
     path(
         "api/models/registry/",
@@ -82,6 +106,11 @@ urlpatterns = [
         "api/projects/<int:project_id>/assistant/chat/",
         AssistantChatView.as_view(),
         name="api-project-assistant-chat",
+    ),
+    path(
+        "api/projects/<int:project_id>/assistant/conversation/",
+        AssistantConversationView.as_view(),
+        name="api-project-assistant-conversation",
     ),
     path(
         "api/pipelines/",
@@ -129,3 +158,6 @@ urlpatterns = [
         name="api-mcp-tool-invoke",
     ),
 ]
+
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

@@ -126,7 +126,9 @@ def _run_http_request(
         )
     except requests.RequestException as exc:  # noqa: PERF203
         logger.error("HTTP request to MCP server %s failed: %s", server.name, exc)
-        raise MCPClientError(f"Failed to call MCP server '{server.name}' via HTTP") from exc
+        raise MCPClientError(
+            f"Failed to call MCP server '{server.name}' via HTTP: {exc}"
+        ) from exc
 
     if resp.status_code < 200 or resp.status_code >= 300:
         logger.error(
@@ -265,38 +267,3 @@ def call_tool(server: MCPServer, tool: MCPTool, arguments: Dict[str, Any]) -> Di
         }
         response = _run_stdio_request(server, payload)
     return response.get("result") or {}
-
-
-def sync_tools_for_server(server: MCPServer) -> int:
-    tools_data = list_tools_for_server(server)
-
-    seen_names: set[str] = set()
-
-    for tool_info in tools_data:
-        name = tool_info.get("name")
-        if not name:
-            continue
-
-        seen_names.add(name)
-
-        description = tool_info.get("description", "") or ""
-        input_schema = tool_info.get("input_schema") or {}
-        output_schema = tool_info.get("output_schema") or {}
-
-        MCPTool.objects.update_or_create(
-            server=server,
-            name=name,
-            defaults={
-                "description": description,
-                "input_schema": input_schema,
-                "output_schema": output_schema,
-                "is_active": True,
-            },
-        )
-
-    if seen_names:
-        MCPTool.objects.filter(server=server).exclude(name__in=seen_names).update(
-            is_active=False
-        )
-
-    return MCPTool.objects.filter(server=server, is_active=True).count()

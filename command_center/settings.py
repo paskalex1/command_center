@@ -5,6 +5,8 @@ from celery.schedules import crontab
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+PROJECT_DOCS_ROOT = BASE_DIR / "docs"
+PROJECT_DOCS_ROOT.mkdir(parents=True, exist_ok=True)
 
 # Load environment variables from .env if present
 load_dotenv(BASE_DIR / ".env")
@@ -28,7 +30,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "rest_framework",
     "pgvector.django",
-    "core",
+    "core.apps.CoreConfig",
 ]
 
 MIDDLEWARE = [
@@ -125,7 +127,27 @@ CELERY_BEAT_SCHEDULE = {
         "task": "command_center.tasks.sync_llm_registry_task",
         "schedule": crontab(day_of_month=1, hour=3, minute=0),
     },
+    "cleanup-agent-memory-daily": {
+        "task": "core.tasks.cleanup_agent_memory",
+        "schedule": crontab(hour=3, minute=0),
+    },
+    "cleanup-graph-memory-daily": {
+        "task": "core.tasks.cleanup_graph_memory",
+        "schedule": crontab(hour=4, minute=0),
+    },
+    "sync-rag-projects-daily": {
+        "task": "core.tasks.sync_all_projects_rag",
+        "schedule": crontab(hour=5, minute=0),
+    },
 }
 
 # MCP HTTP settings
 MCP_HTTP_ORIGIN = "http://command-center"
+
+AGENT_MEMORY_RETENTION_LOW_DAYS = int(os.getenv("AGENT_MEMORY_RETENTION_LOW_DAYS", "60"))
+AGENT_MEMORY_RETENTION_NORMAL_DAYS = int(os.getenv("AGENT_MEMORY_RETENTION_NORMAL_DAYS", "180"))
+MAX_AGENT_MEMORY_PER_AGENT = int(os.getenv("MAX_AGENT_MEMORY_PER_AGENT", "2000"))
+MAX_GRAPH_NODES_PER_AGENT = int(os.getenv("MAX_GRAPH_NODES_PER_AGENT", "2000"))
+MAX_GRAPH_EDGES_PER_AGENT = int(os.getenv("MAX_GRAPH_EDGES_PER_AGENT", "5000"))
+
+RAG_AUTO_SYNC_DAYS = int(os.getenv("RAG_AUTO_SYNC_DAYS", "3"))

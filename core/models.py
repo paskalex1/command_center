@@ -1,4 +1,11 @@
+import uuid
+from pathlib import Path
+
+from django.conf import settings
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
+from django.db.models import Q
+from django.utils.text import slugify
 from pgvector.django import VectorField
 
 from command_center.llm_registry import (
@@ -13,6 +20,34 @@ from django.core.exceptions import ValidationError
 
 
 logger = logging.getLogger(__name__)
+
+
+def _generate_unique_slug(
+    model: type[models.Model],
+    base_value: str | None,
+    *,
+    pk: int | None = None,
+    default_name: str = "item",
+    max_length: int = 64,
+) -> str:
+    base_slug = slugify(base_value or "") or default_name
+    base_slug = base_slug[:max_length]
+    candidate = base_slug
+    counter = 1
+
+    while True:
+        qs = model.objects.filter(slug=candidate)
+        if pk is not None:
+            qs = qs.exclude(pk=pk)
+        if not qs.exists():
+            return candidate
+        suffix = f"-{counter}"
+        allowed_len = max_length - len(suffix)
+        if allowed_len <= 0:
+            candidate = suffix.strip("-")
+        else:
+            candidate = f"{base_slug[:allowed_len]}{suffix}"
+        counter += 1
 
 
 def validate_mcp_base_url(value: str):
@@ -39,7 +74,22 @@ def validate_mcp_base_url(value: str):
 class Project(models.Model):
     name = models.CharField("Название", max_length=255)
     description = models.TextField("Описание", blank=True)
+    slug = models.SlugField("Slug", max_length=64, unique=True, blank=True)
     created_at = models.DateTimeField("Создано", auto_now_add=True)
+    rag_last_full_sync_at = models.DateTimeField(
+        "Последний полный синк RAG",
+        null=True,
+        blank=True,
+    )
+    rag_last_error_at = models.DateTimeField(
+        "Последняя ошибка RAG",
+        null=True,
+        blank=True,
+    )
+    rag_error_count = models.PositiveIntegerField(
+        "Количество ошибок RAG",
+        default=0,
+    )
 
     class Meta:
         verbose_name = "Проект"
@@ -47,6 +97,23 @@ class Project(models.Model):
 
     def __str__(self) -> str:
         return self.name
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = _generate_unique_slug(
+                Project,
+                self.name,
+                pk=self.pk,
+                default_name="project",
+            )
+        super().save(*args, **kwargs)
+
+    @property
+    def docs_path(self) -> Path:
+        base = Path(
+            getattr(settings, "PROJECT_DOCS_ROOT", settings.BASE_DIR / "docs")
+        )
+        return base / self.slug
 
 
 class KnowledgeBase(models.Model):
@@ -118,6 +185,16 @@ class KnowledgeChunk(models.Model):
         verbose_name="Документ",
         on_delete=models.CASCADE,
         related_name="chunks",
+        null=True,
+        blank=True,
+    )
+    source = models.ForeignKey(
+        "KnowledgeSource",
+        verbose_name="Источник знаний",
+        on_delete=models.CASCADE,
+        related_name="chunks",
+        null=True,
+        blank=True,
     )
     project = models.ForeignKey(
         Project,
@@ -145,6 +222,14 @@ class KnowledgeEmbedding(models.Model):
         on_delete=models.CASCADE,
         related_name="embeddings",
     )
+    source = models.ForeignKey(
+        "KnowledgeSource",
+        verbose_name="Источник знаний",
+        on_delete=models.SET_NULL,
+        related_name="embeddings",
+        null=True,
+        blank=True,
+    )
     embedding = VectorField("Вектор", dimensions=1536)
     created_at = models.DateTimeField("Создано", auto_now_add=True)
 
@@ -161,7 +246,144 @@ class KnowledgeEmbedding(models.Model):
         return f"Embedding for chunk {self.chunk_id}"
 
 
+class KnowledgeSource(models.Model):
+    """
+    Файл документации в docs/<project_slug>.
+    """
+
+    STATUS_NEW = "new"
+    STATUS_QUEUED = "queued"
+    STATUS_PROCESSED = "processed"
+    STATUS_ERROR = "error"
+
+    STATUS_CHOICES = [
+        (STATUS_NEW, "New"),
+        (STATUS_QUEUED, "Queued"),
+        (STATUS_PROCESSED, "Processed"),
+        (STATUS_ERROR, "Error"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name="knowledge_sources",
+        verbose_name="Проект",
+    )
+    path = models.CharField(
+        "Путь относительно docs/<slug>",
+        max_length=1024,
+    )
+    filename = models.CharField("Имя файла", max_length=255)
+    content_hash = models.CharField(
+        "Хеш содержимого", max_length=64, db_index=True
+    )
+    mime_type = models.CharField("MIME-тип", max_length=100, blank=True)
+    status = models.CharField(
+        "Статус",
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_NEW,
+    )
+    last_error = models.TextField("Последняя ошибка", blank=True)
+    created_at = models.DateTimeField("Создано", auto_now_add=True)
+    updated_at = models.DateTimeField("Обновлено", auto_now=True)
+
+    class Meta:
+        unique_together = [("project", "path")]
+        verbose_name = "Источник знаний"
+        verbose_name_plural = "Источники знаний"
+
+    def __str__(self) -> str:
+        return f"{self.project_id}:{self.path}"
+
+
+class KnowledgeSourceVersion(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    source = models.ForeignKey(
+        KnowledgeSource,
+        verbose_name="Источник",
+        on_delete=models.CASCADE,
+        related_name="versions",
+    )
+    project = models.ForeignKey(
+        Project,
+        verbose_name="Проект",
+        on_delete=models.CASCADE,
+        related_name="source_versions",
+    )
+    content_hash = models.CharField("Хеш содержимого", max_length=64)
+    mime_type = models.CharField("MIME-тип", max_length=100, blank=True, default="")
+    size_bytes = models.PositiveIntegerField("Размер, байт", default=0)
+    text_head = models.TextField("Начало текста", blank=True, default="")
+    full_text = models.TextField("Полный текст", blank=True, default="")
+    created_at = models.DateTimeField("Создано", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Версия источника"
+        verbose_name_plural = "Версии источников"
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.source.path}@{self.content_hash[:8]}"
+
+
+class KnowledgeChangeLog(models.Model):
+    TYPE_ADDED = "added"
+    TYPE_MODIFIED = "modified"
+    TYPE_REMOVED = "removed"
+
+    TYPE_CHOICES = [
+        (TYPE_ADDED, "Добавлен"),
+        (TYPE_MODIFIED, "Изменён"),
+        (TYPE_REMOVED, "Удалён"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    project = models.ForeignKey(
+        Project,
+        verbose_name="Проект",
+        on_delete=models.CASCADE,
+        related_name="rag_changelog",
+    )
+    source = models.ForeignKey(
+        KnowledgeSource,
+        verbose_name="Источник",
+        on_delete=models.CASCADE,
+        related_name="changelog_entries",
+    )
+    previous_version = models.ForeignKey(
+        KnowledgeSourceVersion,
+        verbose_name="Предыдущая версия",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="next_changes",
+    )
+    version = models.ForeignKey(
+        KnowledgeSourceVersion,
+        verbose_name="Версия",
+        on_delete=models.CASCADE,
+        related_name="changelog_entries",
+    )
+    change_type = models.CharField("Тип изменения", max_length=20, choices=TYPE_CHOICES)
+    diff_text = models.TextField("Точный diff", blank=True, default="")
+    semantic_summary = models.TextField("Семантическое описание", blank=True, default="")
+    new_facts = models.JSONField("Новые факты", default=list, blank=True)
+    removed_facts = models.JSONField("Удалённые факты", default=list, blank=True)
+    created_at = models.DateTimeField("Создано", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Изменение документации"
+        verbose_name_plural = "Изменения документации"
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.project.slug}:{self.source.path} ({self.change_type})"
+
+
 class MCPServer(models.Model):
+    slug = models.SlugField("Slug", max_length=64, unique=True, blank=True)
     TRANSPORT_STDIO = "stdio"
     TRANSPORT_HTTP = "http"
 
@@ -209,6 +431,9 @@ class MCPServer(models.Model):
 
     is_active = models.BooleanField("Активен", default=True)
 
+    last_synced_at = models.DateTimeField("Последняя синхронизация", null=True, blank=True)
+    last_error = models.TextField("Последняя ошибка", blank=True, default="")
+
     created_at = models.DateTimeField("Создано", auto_now_add=True)
     updated_at = models.DateTimeField("Обновлено", auto_now=True)
 
@@ -218,6 +443,16 @@ class MCPServer(models.Model):
 
     def __str__(self) -> str:
         return self.name
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = _generate_unique_slug(
+                MCPServer,
+                self.name,
+                pk=self.pk,
+                default_name="mcp-server",
+            )
+        super().save(*args, **kwargs)
 
 
 class MCPTool(models.Model):
@@ -244,10 +479,21 @@ class MCPTool(models.Model):
         return f"{self.server.name}:{self.name}"
 
 
+class AgentQuerySet(models.QuerySet):
+    def available(self, project=None):
+        qs = self.filter(is_active=True)
+        if project is not None:
+            qs = qs.filter(Q(project=project) | Q(project__isnull=True))
+        return qs
+
 class Agent(models.Model):
+    slug = models.SlugField("Slug", max_length=64, unique=True, blank=True)
+
     class ToolMode(models.TextChoices):
         AUTO = "auto", "Авто (инструменты по желанию)"
         REQUIRED = "required", "Только через инструменты"
+
+    objects = AgentQuerySet.as_manager()
 
     project = models.ForeignKey(
         Project,
@@ -324,6 +570,18 @@ class Agent(models.Model):
         return "gpt-4.1-mini"
 
     def save(self, *args, **kwargs):
+        if not self.slug:
+            base = self.name
+            if self.project_id:
+                project_slug = getattr(self.project, "slug", None)
+                if project_slug:
+                    base = f"{project_slug}-{base}"
+            self.slug = _generate_unique_slug(
+                Agent,
+                base,
+                pk=self.pk,
+                default_name="agent",
+            )
         if self.model_name:
             if is_model_deprecated(self.model_name):
                 logger.warning(
@@ -438,15 +696,167 @@ class Message(models.Model):
         return f"{self.sender}: {self.content[:50]}"
 
 
+class MessageAttachment(models.Model):
+    message = models.ForeignKey(
+        Message,
+        verbose_name="Сообщение",
+        on_delete=models.CASCADE,
+        related_name="attachments",
+    )
+    file = models.FileField("Файл", upload_to="chat_attachments/%Y/%m/%d/")
+    original_name = models.CharField("Имя файла", max_length=255, blank=True)
+    mime_type = models.CharField("MIME-тип", max_length=100, blank=True)
+    size = models.PositiveIntegerField("Размер, байт", default=0)
+    created_at = models.DateTimeField("Загружено", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Вложение сообщения"
+        verbose_name_plural = "Вложения сообщений"
+        ordering = ["created_at"]
+
+    def __str__(self) -> str:
+        return self.original_name or self.file.name
+
+    @property
+    def is_image(self) -> bool:
+        return (self.mime_type or "").startswith("image/")
+
+
+class AgentMemory(models.Model):
+    IMPORTANCE_LOW = "low"
+    IMPORTANCE_NORMAL = "normal"
+    IMPORTANCE_HIGH = "high"
+
+    IMPORTANCE_CHOICES = [
+        (IMPORTANCE_LOW, "Низкая"),
+        (IMPORTANCE_NORMAL, "Нормальная"),
+        (IMPORTANCE_HIGH, "Высокая"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    agent = models.ForeignKey(
+        Agent,
+        verbose_name="Агент",
+        on_delete=models.CASCADE,
+        related_name="memories",
+    )
+    content = models.TextField("Содержимое")
+    content_hash = models.CharField(
+        "Хэш содержимого",
+        max_length=64,
+        blank=True,
+        default="",
+        db_index=True,
+    )
+    embedding = VectorField("Эмбеддинг", dimensions=1536)
+    importance = models.CharField(
+        "Важность",
+        max_length=20,
+        choices=IMPORTANCE_CHOICES,
+        default=IMPORTANCE_NORMAL,
+    )
+    created_at = models.DateTimeField("Создано", auto_now_add=True)
+    updated_at = models.DateTimeField("Обновлено", auto_now=True)
+
+    class Meta:
+        verbose_name = "Долгосрочная память"
+        verbose_name_plural = "Долгосрочные памяти"
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"Memory {self.id} for agent {self.agent_id}"
+
+
+class KnowledgeNode(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    agent = models.ForeignKey(
+        Agent,
+        verbose_name="Агент",
+        on_delete=models.CASCADE,
+        related_name="knowledge_nodes",
+    )
+    label = models.CharField("Метка", max_length=255)
+    type = models.CharField("Тип сущности", max_length=100, blank=True, default="")
+    description = models.TextField("Описание", blank=True, default="")
+    embedding = VectorField("Эмбеддинг", dimensions=1536, null=True, blank=True)
+    object_type = models.CharField("Тип объекта", max_length=100, blank=True, default="")
+    object_id = models.CharField("ID объекта", max_length=100, blank=True, default="")
+    created_at = models.DateTimeField("Создано", auto_now_add=True)
+    updated_at = models.DateTimeField("Обновлено", auto_now=True)
+    is_pinned = models.BooleanField(
+        "Защищённый узел",
+        default=False,
+        help_text="Не удалять в автоматической очистке.",
+    )
+    usage_count = models.IntegerField(
+        "Использований",
+        default=0,
+        help_text="Сколько раз узел попадал в graph-recall.",
+    )
+    last_used_at = models.DateTimeField(
+        "Последнее использование",
+        null=True,
+        blank=True,
+        help_text="Когда узел последний раз попадал в контекст.",
+    )
+
+    class Meta:
+        verbose_name = "Графовый узел"
+        verbose_name_plural = "Графовые узлы"
+        unique_together = ("agent", "label", "type")
+        ordering = ["label"]
+
+    def __str__(self) -> str:
+        return f"{self.label} ({self.type})"
+
+
+class KnowledgeEdge(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    agent = models.ForeignKey(
+        Agent,
+        verbose_name="Агент",
+        on_delete=models.CASCADE,
+        related_name="knowledge_edges",
+    )
+    source = models.ForeignKey(
+        KnowledgeNode,
+        verbose_name="Источник",
+        on_delete=models.CASCADE,
+        related_name="outgoing_edges",
+    )
+    target = models.ForeignKey(
+        KnowledgeNode,
+        verbose_name="Цель",
+        on_delete=models.CASCADE,
+        related_name="incoming_edges",
+    )
+    relation = models.CharField("Связь", max_length=100)
+    description = models.TextField("Описание", blank=True, default="")
+    weight = models.FloatField("Вес", default=1.0)
+    created_at = models.DateTimeField("Создано", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Графовая связь"
+        verbose_name_plural = "Графовые связи"
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.source} -[{self.relation}]-> {self.target}"
+
+
 class MemoryEvent(models.Model):
     TYPE_FACT = "fact"
-    TYPE_PREF = "preference"
     TYPE_TASK = "task"
+    TYPE_PLAN = "plan"
+    TYPE_SCHEMA = "schema"
+    TYPE_DECISION = "decision"
 
     TYPE_CHOICES = [
         (TYPE_FACT, "Факт"),
-        (TYPE_PREF, "Предпочтение"),
         (TYPE_TASK, "Задача"),
+        (TYPE_PLAN, "План"),
+        (TYPE_SCHEMA, "Схема"),
+        (TYPE_DECISION, "Решение"),
     ]
 
     agent = models.ForeignKey(
@@ -461,7 +871,15 @@ class MemoryEvent(models.Model):
         on_delete=models.CASCADE,
         related_name="memory_events",
     )
-    source_message = models.ForeignKey(
+    conversation = models.ForeignKey(
+        Conversation,
+        verbose_name="Диалог",
+        on_delete=models.CASCADE,
+        related_name="memory_events",
+        null=True,
+        blank=True,
+    )
+    message = models.ForeignKey(
         Message,
         on_delete=models.SET_NULL,
         null=True,
@@ -473,9 +891,10 @@ class MemoryEvent(models.Model):
         "Содержимое",
         help_text="Нормализованный факт/предпочтение/задача в человеческом виде",
     )
-    importance = models.FloatField(
+    importance = models.PositiveIntegerField(
         "Важность",
-        help_text="Важность памяти в диапазоне 0.0–1.0",
+        default=1,
+        help_text="Важность памяти (1-3)",
     )
     created_at = models.DateTimeField("Создано", auto_now_add=True)
 
@@ -539,6 +958,31 @@ class Pipeline(models.Model):
 
     def __str__(self) -> str:
         return f"{self.project_id}:{self.name}"
+
+
+class RetrievalLog(models.Model):
+    agent = models.ForeignKey(
+        Agent,
+        verbose_name="Агент",
+        on_delete=models.CASCADE,
+        related_name="retrieval_logs",
+    )
+    query = models.TextField("Запрос")
+    used_memories = ArrayField(
+        models.UUIDField(),
+        default=list,
+        blank=True,
+        verbose_name="Использованные памяти",
+    )
+    created_at = models.DateTimeField("Создано", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Лог выборки памяти"
+        verbose_name_plural = "Логи выборки памяти"
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"RetrievalLog {self.id} for agent {self.agent_id}"
 
 
 class PipelineStep(models.Model):

@@ -16,6 +16,8 @@ venv/
 staticfiles/
 media/
 local_settings.py
+backups/
+docs/
 
 # Environment
 .env
@@ -61,9 +63,14 @@ yarn-error.log
 # OS files
 .DS_Store
 Thumbs.db
+
+#Plans
 CHECKLISTS.md
 COMMAND_CENTER_PLAN.md
 MY_LLM_MODELS.md
+COMMAND_CENTER_MEMORY.md
+CCOMMAND_CENTER_GRAPH_MEMORY.md
+market-scraper-mcp.md
 
 # MCP local configs
 .env.mcp

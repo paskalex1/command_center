@@ -15,6 +15,9 @@
 - **Пайплайны** — последовательности шагов (агенты + инструменты), выполняемые через Celery.
 - **UI командного центра** — проекты, агенты, чат, память, MCP и пайплайны + новый блок управления доступами к инструментам и быстрые действия для Filesystem MCP (архивы, JSON/YAML и т.д.).
 - **LLM Registry** — централизованный реестр доступных LLM‑моделей, синхронизируемый с OpenAI.
+- **История диалогов и вложения** — чат в стиле ChatGPT с хранением переписки, предпросмотром tool traces и поддержкой изображений/документов.
+- **Project docs** — при создании проекта автоматически создаётся `docs/<slug>/README.md`, и уже существующие проекты можно покрыть командой `generate_project_docs`.
+- **Knowledge Extractor** — скрытый агент и Celery‑таски, автоматически извлекающие факты/сущности из семантических диффов и «информативных» ответов для пополнения Graph Memory.
 
 ## Память и знания агента
 
@@ -25,6 +28,53 @@
 3. **AGENT RAG DOCUMENTS** — top‑K фрагментов внешней документации (`KnowledgeEmbedding`).
 
 Эти блоки попадают в системный контекст перед историей диалога, а их содержимое отображается в `tool_traces` как `memory_recall`, `graph_recall`, `rag_recall`.
+
+## Документация проектов
+
+- `PROJECT_DOCS_ROOT` (`/docs/`) хранит каталоги каждого проекта.
+- После сохранения `Project` сигнал создаёт папку `docs/<slug>/` и записывает `README.md` с названием, описанием и ссылкой на структуру.
+- Чтобы создать документацию для существующих проектов, выполните:
+
+  ```bash
+  docker-compose exec web python manage.py generate_project_docs
+  ```
+
+## Диалоговый интерфейс и вложения
+
+- Каждый проект × агент теперь имеет **отдельный Conversation**. Повторное открытие агента подхватывает последнюю беседу, а кнопка «Новый диалог» создаёт свежую сессию.
+- `POST /api/projects/<id>/assistant/chat/` принимает `conversation_id`, а также мульти‑часть с полем `attachments` — туда можно загрузить изображения (PNG/JPEG) и произвольные файлы. Файлы сохраняются в `media/chat_attachments/<date>/` и показываются с превью прямо в чате.
+- `GET/POST /api/projects/<id>/assistant/conversation/` — API для получения или сброса текущей беседы (используется UI).
+- Tool traces, память и RAG‑вставки выводятся компактными «плашками» под ответом. По клику открывается модальное окно с полным JSON.
+- Левая колонка содержит плоский список агентов + блок LLM Registry (синхронизация делается из UI). Правая панель показывает MCP‑серверы и пайплайны проекта, а сам чат визуально и по UX ориентирован на ChatGPT.
+
+## Отдельная страница «Память»
+
+- В верхнем меню появились вкладки **«Чат»** и **«Память»**. Страница памяти показывает:
+  - журнал AgentMemory (с кнопкой обновления);
+  - Graph Memory с overview (qty узлов/связей, топ‑концепты, свежие отношения) и переключателем pinned;
+  - RAG панель — статус последнего синка, ошибки, changelog файлов, быстрый вызов RAG Librarian;
+  - «Память проекта» — последние MemoryEvent.
+- Данные подгружаются через новые REST‑эндпоинты (`/graph/overview/`, `/rag/changelog/` и т.д.) и могут обновляться без перезагрузки страницы.
+
+## Knowledge Extractor и Graph Memory
+
+- Миграцией `0030_create_knowledge_extractor` фиксируется агент `knowledge-extractor`. Он не отображается в UI, но вызывается фоном:
+  - после любого Semantic Diff RAG (`KnowledgeChangeLog`);
+  - после ответов агентов, удовлетворяющих `is_knowledge_rich_text`;
+  - по ручным запросам пользователя («обнови граф», «извлеки знания...»).
+- Сервис `core/services/knowledge_extraction.py` формирует JSON (`nodes` + `edges`) и передаёт в `graph_ingest`, который:
+  - дедуплицирует узлы по `label`/`type`;
+  - наращивает `usage_count` и `last_used_at`;
+  - создаёт связи только при отсутствии дублей;
+  - может прикреплять `object_type/object_id` и embedding.
+- `GET /api/projects/<slug>/graph/overview/` — агрегированная статистика, которая питает UI и внешние интеграции.
+
+## RAG мониторинг, diff и changelog
+
+- `Project` хранит `rag_last_full_sync_at`, `rag_last_error_at`, `rag_error_count`. Фоновая задача `sync_all_projects_rag` (Celery beat, раз в сутки) автоматически ставит на переиндексацию «протухшие» проекты.
+- `KnowledgeSourceVersion` и `KnowledgeChangeLog` фиксируют каждый синк: хэш, `text_head`, полный снапшот (для текстов ≤ 512КБ) и unified diff. Из diff извлекаются «новые/удалённые факты», которыми можно сразу обновлять Graph Memory.
+- UI показывает changelog таблицу, баннер при ошибках и позволяет одним кликом «попросить RAG‑агента» пересобрать индекс.
+- REST‑слой (`/api/projects/<slug>/rag/sources/`, `/rag/ingest/`, `/rag/changelog/`) используется как UI, так и RAG Librarian/другие агенты, обеспечивая единый контракт.
 
 ## Стек
 
@@ -88,6 +138,15 @@
   - `GET/PATCH  /api/pipelines/{id}/`
 - `POST       /api/pipelines/{id}/run/`
 - `GET        /api/tasks/{id}/`
+- Память и диалоги:
+  - `GET/POST /api/projects/{project_id}/assistant/conversation/`
+  - `GET      /api/conversations/{id}/`
+- Graph Memory:
+  - `GET /api/projects/{slug}/graph/overview/`
+- RAG:
+  - `GET  /api/projects/{slug}/rag/sources/`
+  - `POST /api/projects/{slug}/rag/ingest/`
+  - `GET  /api/projects/{slug}/rag/changelog/`
 - LLM Registry:
 - `GET  /api/models/registry/` — текущее состояние реестра моделей
 - `POST /api/models/registry/sync/` — ручной запуск синхронизации (только для админов)
@@ -111,6 +170,49 @@ MCP_BASE_URL=http://localhost:8020/mcp python3 -m unittest tests.test_smoke
 ```
 
 Перед запуском убедитесь, что контейнер Filesystem MCP поднят (`docker-compose up -d` внутри каталога `filesystem-mcp`).
+
+## Резервное копирование
+
+В репозитории есть скрипт `scripts/backup_command_center.sh`, который сохраняет:
+
+- дамп PostgreSQL (`postgres.sql`, через `pg_dump` внутри контейнера `postgres`);
+- ключевые конфигурации (.env, docker-compose, requirements) и пользовательские данные (`docs/`, `media/`, `command_center/config/`);
+- служебный файл `backup_info.txt` с метаданными бэкапа.
+
+Запуск из корня проекта:
+
+```bash
+./scripts/backup_command_center.sh
+```
+
+По умолчанию архивы попадают в `backups/command_center_YYYYmmdd_HHMMSS.tar.gz`. Можно переопределить каталог и env-файл:
+
+```bash
+BACKUP_DIR=/mnt/backups ENV_FILE=/path/to/.env ./scripts/backup_command_center.sh
+```
+
+Восстановление:
+
+1. Распаковать архив (`tar -xzf command_center_*.tar.gz`).
+2. Вернуть нужные файлы/директории из каталога `files/` (например `.env`, `docs`, `media`).
+3. Загрузить БД:
+   ```bash
+  docker compose exec -T postgres bash -c "PGPASSWORD='$POSTGRES_PASSWORD' psql -U '$POSTGRES_USER' '$POSTGRES_DB'" < postgres.sql
+  ```
+
+Перед запуском убедитесь, что переменные `POSTGRES_*` совпадают с теми, что использовались при создании бэкапа.
+
+## Экспорт / импорт конфигурации
+
+- `docker-compose exec web python manage.py export_cc_config export.json` — сохраняет проекты, MCP‑серверы, агентов и доступы (включая привязанные инструменты) в один JSON.
+- `docker-compose exec web python manage.py import_cc_config export.json` — восстанавливает те же сущности, синхронизирует инструменты серверов и заново генерирует `docs/<slug>/README.md`.
+- Команды полезны для миграции окружений и репликации настроек.
+
+### Агент “RAG Librarian”
+
+- При миграции `0026_create_rag_librarian` автоматически создаётся глобальный агент **RAG Librarian** (`slug=rag-librarian`), который отвечает за сканирование `/docs/<project_slug>/` и переиндексацию RAG.
+- Все primary-агенты автоматически получают его в делегаты (сигнал `post_save` следит за новыми агентами); при запросах, связанных с документацией, основной ассистент обязан вызывать инструмент `delegate_to_agent_<id>` и передавать задачу библиотекарю.
+- Если нужен кастомный вариант для конкретного проекта — можно клонировать агента в админке и указать `project`, система всё равно подключит его как делегата и добавит инструкцию в системный промпт.
 
 ## LLM Registry
 
