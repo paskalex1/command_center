@@ -18,12 +18,28 @@ services:
     networks:
       - mcp-net
 
+  web-knowledge-mcp:
+    build:
+      context: ../mcp/web-knowledge-mcp
+    container_name: web-knowledge-mcp
+    restart: unless-stopped
+    environment:
+      WEB_KNOWLEDGE_PORT: 8000
+      WEB_KNOWLEDGE_MAX_URLS: ${WEB_KNOWLEDGE_MAX_URLS:-20}
+      WEB_KNOWLEDGE_SEARCH_CANDIDATES: ${WEB_KNOWLEDGE_SEARCH_CANDIDATES:-30}
+      WEB_KNOWLEDGE_MAX_BYTES: ${WEB_KNOWLEDGE_MAX_BYTES:-5242880}
+      WEB_KNOWLEDGE_HTTP_TIMEOUT: ${WEB_KNOWLEDGE_HTTP_TIMEOUT:-15}
+      MCP_ALLOWED_ORIGINS: http://command-center
+    ports:
+      - "${MCP_WEB_KNOWLEDGE_PORT:-8011}:8000"
+    networks:
+      - mcp-net
+
 networks:
   mcp-net:
     external: true
 
 # ВАЖНО:
-# Этот файл приведён как пример конфигурации MCP-сервера.
+# Этот файл приведён как пример конфигурации MCP-серверов.
 # Для локальной разработки создайте docker-compose.mcp.local.yml
 # (он должен быть добавлен в .gitignore) и настраивайте его там.
-

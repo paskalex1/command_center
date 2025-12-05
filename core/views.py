@@ -4,6 +4,7 @@ import os
 from typing import Any
 from types import SimpleNamespace
 
+from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.db.models import Q
 from django.shortcuts import render
@@ -31,7 +32,12 @@ from .services.knowledge_extraction import (
     maybe_schedule_knowledge_extractor_for_agent,
     schedule_knowledge_extractor,
 )
-from .constants import KNOWLEDGE_EXTRACTOR_SLUG, RAG_LIBRARIAN_SLUG
+from .constants import (
+    KNOWLEDGE_EXTRACTOR_SLUG,
+    RAG_LIBRARIAN_SLUG,
+    WEB_KNOWLEDGE_MCP_SLUG,
+    WEB_KNOWLEDGE_TOOL_NAME,
+)
 from command_center.llm_registry import (
     get_chat_primary,
     get_chat_recommended,
@@ -77,9 +83,11 @@ from .embeddings import embed_text
 from .memory_extractor import extract_memory_events
 from .services.agent_context import build_agent_llm_messages
 from .services.rag_delegate import get_rag_delegate
+from .services.web_knowledge_ingest import persist_web_knowledge_documents
 from .tasks import (
     generate_memory_embedding_for_event,
     process_knowledge_document,
+    ingest_project_docs,
 )
 
 import logging
@@ -663,7 +671,7 @@ class ConversationDetailView(generics.RetrieveAPIView):
 
 
 class AssistantChatView(APIView):
-    MAX_TOOL_ITERATIONS = 10
+    MAX_TOOL_ITERATIONS = max(0, getattr(settings, "AGENT_TOOL_MAX_ITERATIONS", 10))
     parser_classes = [JSONParser, FormParser, MultiPartParser]
 
     def _save_message_attachments(self, message: Message, files: list) -> list[MessageAttachment]:
@@ -1011,6 +1019,14 @@ class AssistantChatView(APIView):
 
         if name in mcp_tool_lookup:
             server, tool = mcp_tool_lookup[name]
+            arguments = dict(arguments or {})
+            is_web_knowledge_call = (
+                project is not None
+                and server.slug == WEB_KNOWLEDGE_MCP_SLUG
+                and tool.name == WEB_KNOWLEDGE_TOOL_NAME
+            )
+            if is_web_knowledge_call:
+                arguments.setdefault("project_slug", project.slug)
             try:
                 result = call_tool(server, tool, arguments or {})
                 logger.info(
@@ -1020,12 +1036,32 @@ class AssistantChatView(APIView):
                     name,
                     arguments,
                 )
+                stored_documents = []
+                if is_web_knowledge_call and project is not None:
+                    try:
+                        stored_documents = persist_web_knowledge_documents(
+                            project=project,
+                            payload=result or {},
+                            query=arguments.get("query"),
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        logger.exception("Failed to persist Web Knowledge docs: %s", exc)
+                        stored_documents = []
+                    else:
+                        if stored_documents:
+                            ingest_project_docs.delay(project.id)
+
+                payload_result: dict[str, Any] = result or {}
+                if stored_documents:
+                    payload_result = dict(payload_result)
+                    payload_result["stored_documents"] = stored_documents
+
                 return {
                     "status": "ok",
                     "type": "mcp",
                     "server": server.name,
                     "tool": tool.name,
-                    "result": result,
+                    "result": payload_result,
                 }
             except MCPClientError as exc:
                 logger.warning(
@@ -1214,8 +1250,9 @@ class AssistantChatView(APIView):
                 used_tools = True
 
             iterations += 1
-            if iterations >= self.MAX_TOOL_ITERATIONS:
-                return reply_text + "\n\n[system] Достигнут лимит вызовов инструментов.", tool_traces
+            if self.MAX_TOOL_ITERATIONS and iterations >= self.MAX_TOOL_ITERATIONS:
+                limit_notice = "\n\n[system] Достигнут лимит вызовов инструментов."
+                return reply_text + limit_notice, tool_traces
 
     def _convert_messages_for_responses(self, base_messages: list[dict]) -> list[dict]:
         converted: list[dict] = []
@@ -1361,8 +1398,9 @@ class AssistantChatView(APIView):
                 return reply_text, tool_traces
 
             iterations += 1
-            if iterations >= self.MAX_TOOL_ITERATIONS:
-                return reply_text + "\n\n[system] Достигнут лимит вызовов инструментов.", tool_traces
+            if self.MAX_TOOL_ITERATIONS and iterations >= self.MAX_TOOL_ITERATIONS:
+                limit_notice = "\n\n[system] Достигнут лимит вызовов инструментов."
+                return reply_text + limit_notice, tool_traces
 
             for tc in response_tool_calls:
                 tc_id = getattr(tc, "call_id", "") or getattr(tc, "id", "")
